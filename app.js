@@ -77,8 +77,15 @@ const App = (() => {
     const ts = A.estado.testes.filter(t => t.percent != null && filtro(t));
     return ts.length ? Math.max(...ts.map(t => t.percent)) : null;
   }
+  // Respostas que deixam de contar no progresso porque as perguntas mudaram e o pai pediu para repetir.
+  // 17/10/2026: opções de escolha múltipla reescritas (a certa era quase sempre a mais longa) → as difíceis repetem-se.
+  // Não se apaga nada; só se ignoram as respostas anteriores à data.
+  const REPOSICOES = [{ estilo: 'escolha', nivel: 3, ate: '2026-10-17T23:59:00Z' }];
+  const anulada = (t, r) => REPOSICOES.some(x => t.data < x.ate && estiloDe(r) === x.estilo && r.nivel === x.nivel);
+  const testeAnulado = t => REPOSICOES.some(x => t.data < x.ate && x.estilo === 'escolha' && t.modo === 'rapido' && NIVEL_DE[t.dificuldade] === x.nivel);
+
   // Conta também os testes antigos, que eram por página.
-  const melhorNotaLicao = (lid, nums) => melhorNota(t => t.livro === lid && t.tipo !== 'global' && nums.includes(t.pagina));
+  const melhorNotaLicao = (lid, nums) => melhorNota(t => t.livro === lid && t.tipo !== 'global' && !testeAnulado(t) && nums.includes(t.pagina));
 
   // Progressão por níveis: um nível da lição fica "dominado" com 80% ou mais num teste desse nível.
   // A app sugere o nível seguinte (aconselha, não obriga).
@@ -86,7 +93,7 @@ const App = (() => {
   const NIVEL_DE = { facil: 1, medio: 2, dificil: 3 };
   const DIF_DE = { 1: 'facil', 2: 'medio', 3: 'dificil' };
   function nivelDominado(lid, nums) {
-    return A.estado.testes.reduce((max, t) => t.livro === lid && t.tipo !== 'global' && nums.includes(t.pagina)
+    return A.estado.testes.reduce((max, t) => t.livro === lid && t.tipo !== 'global' && !testeAnulado(t) && nums.includes(t.pagina)
       && t.percent >= DOMINIO && NIVEL_DE[t.dificuldade] > max ? NIVEL_DE[t.dificuldade] : max, 0);
   }
   // Progresso de um teste da escola: lições estudadas, níveis dominados e, ao ritmo atual,
@@ -125,7 +132,7 @@ const App = (() => {
     const certas = { escola: new Set(), escolha: new Set() }, ajuda = { escola: new Set(), escolha: new Set() };
     // Num teste ainda por rever, as respostas que ela própria se deu como certas só contam depois da revisão.
     A.estado.testes.forEach(t => t.livro === lid && !porCorrigir(t) && t.respostas.forEach(r => {
-      if (r.certa && r.auditoria !== 'mal') (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
+      if (r.certa && r.auditoria !== 'mal' && !anulada(t, r)) (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
     }));
     A.estado.testes.forEach(t => t.livro === lid && t.modo === 'escola' && porCorrigir(t) && t.respostas.forEach(r => {
       if (r.certa && !autoavaliadas({ respostas: [r] }).length) (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
@@ -153,6 +160,7 @@ const App = (() => {
       if (ate && t.data > ate) continue;
       for (const r of t.respostas) {
         if (porCorrigir(t) && autoavaliadas({ respostas: [r] }).length) continue;
+        if (anulada(t, r)) continue;
         (m[r.id] ||= []).push({ data: t.data, boa: !!r.certa && !r.ajuda && r.auditoria !== 'mal', ajuda: !!r.ajuda, estilo: estiloDe(r) });
       }
     }
@@ -224,7 +232,8 @@ const App = (() => {
     const [, , w, h] = caixa.dataset.zona.split(',').map(Number);
     const proporcao = (w * e.target.naturalWidth) / (h * e.target.naturalHeight);
     caixa.style.aspectRatio = proporcao;
-    caixa.style.width = Math.min(560, 340 * proporcao) + 'px'; // zonas altas não ficam enormes
+    const [larg, alt] = caixa.classList.contains('grande') ? [720, 420] : [560, 340];
+    caixa.style.width = Math.min(larg, alt * proporcao) + 'px'; // zonas altas não ficam enormes
   }, true);
 
   // ---------- tempo de estudo ativo ----------
@@ -659,6 +668,15 @@ const App = (() => {
       </div>`;
   }
 
+  // Imagem da pergunta: só o recorte (sem legenda), e sem abrir a página inteira, onde estaria a resposta.
+  function imagemPergunta(q) {
+    if (!q.imagem) return '';
+    const pg = pagina(teste.livro, q.imagem.pagina);
+    if (!pg) return '';
+    const z = q.imagem.zona;
+    return `<div class="imagem-pergunta"><div class="recorte grande" data-zona="${z.join(',')}"><img src="${img(teste.livro, pg)}" alt="Imagem da pergunta" style="${estiloRecorte(z)}"></div></div>`;
+  }
+
   // A marca é uma moldura por cima da página; o recorte mostra só essa zona, ampliada.
   const estiloZona = ([x, y, w, h]) => `left:${x}%;top:${y}%;width:${w}%;height:${h}%`;
   const estiloRecorte = ([x, y, w, h]) => `width:${10000 / w}%;left:${-100 * x / w}%;top:${-100 * y / h}%;height:${10000 / h}%`;
@@ -731,6 +749,7 @@ const App = (() => {
     render(`
       <section class="cartao teste">
         ${topoPergunta(q)}
+        ${imagemPergunta(q)}
         <h2 class="enunciado">${esc(q.pergunta)}</h2>
         <div class="opcoes">${opcoes}</div>
         ${r == null && !teste.ajuda ? '<button class="btn ajuda-btn" id="ajuda">💡 Preciso de ajuda</button>' : ''}
@@ -796,6 +815,7 @@ const App = (() => {
     render(`
       <section class="cartao teste">
         ${topoPergunta(q)}
+        ${imagemPergunta(q)}
         <h2 class="enunciado">${esc(e.pergunta || q.pergunta)}</h2>
         ${corpo}
       </section>`);
@@ -1206,7 +1226,7 @@ const App = (() => {
     const pendentes = reais.filter(porCorrigir);
 
     const porNivel = { 1: { c: 0, t: 0 }, 2: { c: 0, t: 0 }, 3: { c: 0, t: 0 } };
-    comNota.forEach(t => t.respostas.forEach(r => { porNivel[r.nivel].t++; if (r.certa && !r.ajuda) porNivel[r.nivel].c++; }));
+    comNota.forEach(t => t.respostas.forEach(r => { if (anulada(t, r)) return; porNivel[r.nivel].t++; if (r.certa && !r.ajuda) porNivel[r.nivel].c++; }));
 
     // Perguntas que custam: estado atual e comparação com há 7 dias, para se ver se estão a diminuir.
     const contarEstados = lista => Object.fromEntries(Object.keys(ESTADO_CUSTA).map(k => [k, lista.filter(x => x.estado === k).length]));
@@ -1457,7 +1477,18 @@ const App = (() => {
     const paginas = bancos.flatMap(b => (b.paginas || []).map(p => ({ ...p, capitulo: b.capitulo })));
     // zonas: { pagina: { onde: [x, y, largura, altura] em % da página } } — onde está a resposta na imagem.
     const zonas = Object.assign({}, ...bancos.map(b => b.zonas || {}));
-    const perguntas = bancos.flatMap(b => b.perguntas || []).map(q => ({ ...q, zona: q.zona || zonas[q.pagina]?.[q.onde] }));
+    // ajustes: { id: { pergunta?, escritaPergunta?, imagem?: { pagina, zona: [x, y, w, h] } } } — p. ex. perguntas
+    // sobre uma imagem do livro passam a mostrar só a imagem recortada (sem a legenda) em vez de remeter para o livro.
+    const ajustes = Object.assign({}, ...bancos.map(b => b.ajustes || {}));
+    const perguntas = bancos.flatMap(b => b.perguntas || []).map(q => {
+      const aj = ajustes[q.id] || {};
+      return {
+        ...q, zona: q.zona || zonas[q.pagina]?.[q.onde],
+        ...(aj.pergunta && { pergunta: aj.pergunta }),
+        ...(aj.imagem && { imagem: aj.imagem }),
+        ...(q.escrita && aj.escritaPergunta && { escrita: { ...q.escrita, pergunta: aj.escritaPergunta } }),
+      };
+    });
     const licoes = bancos.flatMap(b => b.licoes || []);
     let url = f => '../' + info.base + f;
     if (db) {

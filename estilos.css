@@ -172,6 +172,8 @@ table.mini-niveis { border-collapse: collapse; font-size: 12px; flex: none; widt
 .ajuda-texto { flex: 1; min-width: 0; }
 .recorte { position: relative; overflow: hidden; width: 100%; max-width: 100%; aspect-ratio: 2; margin: 8px 0 4px; border: 3px solid #e53935; border-radius: 8px; cursor: zoom-in; background: #fff; }
 .recorte img { position: absolute; max-width: none; }
+.imagem-pergunta { display: flex; justify-content: center; margin: 14px 0 4px; }
+.recorte.grande { border: 1px solid var(--linha); cursor: default; }
 .pagina-marcada.grande { flex: none; width: min(1000px, 100%); align-self: flex-start; }
 .pagina-marcada.grande img { border: 0; }
 .tabela-larga { overflow-x: auto; }
