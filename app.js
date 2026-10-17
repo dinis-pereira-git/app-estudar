@@ -194,8 +194,7 @@ const App = (() => {
           </div>
         </div>
         <div class="acoes">
-          <a class="btn" href="#/estudar/${lid}/${pg.numero}${a ? '/' + a.id : ''}">📖 Estudar</a>
-          ${a ? `<a class="btn prim" href="#/testar/${a.id}/${pg.numero}">✏️ Testar</a>` : ''}
+          ${a ? `<a class="btn prim" href="#/testar/${a.id}/${pg.numero}">✏️ Testar</a>` : `<a class="btn" href="#/estudar/${lid}/${pg.numero}">📖 Ler</a>`}
         </div>
       </li>`;
   }
@@ -249,7 +248,10 @@ const App = (() => {
       const cabecalho = g.licao ? `
         <div class="licao-topo">
           <div><b>${esc(g.licao.titulo)}</b><br><span class="muted">Páginas ${g.licao.paginas[0]} a ${g.licao.paginas.at(-1)}</span></div>
-          ${temVideo ? `<a class="btn" href="#/estudar/${lid}/${g.nums[0]}${sufixo}">🎬 Ver vídeo</a>` : g.licao.video ? '<span class="chip">Vídeo em breve</span>' : ''}
+          <div class="acoes">
+            ${temVideo ? '<span class="chip ok">🎬 Com vídeo</span>' : g.licao.video ? '<span class="chip">Vídeo em breve</span>' : ''}
+            <a class="btn prim" href="#/estudar/${lid}/${g.nums[0]}${sufixo}">📖 Estudar a lição</a>
+          </div>
         </div>` : '';
       return `<div class="licao">${cabecalho}<ol class="pag-lista">${g.nums.map(n => linhaPagina(lid, pagina(lid, n), a)).join('')}</ol></div>`;
     }).join('');
@@ -280,48 +282,57 @@ const App = (() => {
       <p class="muted">Lição das páginas ${licao.paginas.join(' e ')}. Se o vídeo não aparecer, confirma que estás com a tua conta Google no Chrome.</p>`;
   }
 
-  // ---------- estudar uma página ----------
+  // ---------- estudar uma lição ----------
+  // Estuda-se por lição (normalmente 2 páginas): o vídeo em cima e as páginas da lição por baixo.
+  // Os testes continuam a ser página a página.
   function ecraEstudar(lid, n, a) {
-    const l = livros[lid], pg = pagina(lid, n);
-    if (!pg) return ecraLivro(lid);
-    contexto = { livro: lid, pagina: n };
-    const i = l.paginas.indexOf(pg);
+    const l = livros[lid];
+    if (!pagina(lid, n)) return ecraLivro(lid);
+    const licao = l.licoes.find(x => x.paginas.includes(n)) || { titulo: pagina(lid, n).titulo, paginas: [n] };
+    const nums = licao.paginas.filter(p => pagina(lid, p));
+    contexto = { livro: lid, pagina: nums[0] };
     const sufixo = a ? '/' + a.id : '';
-    const ant = l.paginas[i - 1], seg = l.paginas[i + 1];
-    const info = A.infoPagina(lid, n);
-    const dentro = a && paginasDaAvaliacao(a).includes(n);
+    const pagsTeste = a ? paginasDaAvaliacao(a) : [];
+    const todasLicoes = l.licoes.length ? l.licoes : l.paginas.map(p => ({ paginas: [p.numero] }));
+    const idx = todasLicoes.findIndex(x => x.paginas.includes(n));
+    const ant = todasLicoes[idx - 1], seg = todasLicoes[idx + 1];
     const voltar = a ? `<a href="#/t/${a.id}" class="voltar">← ${esc(nomeAvaliacao(a))}</a>` : `<a href="#/l/${lid}" class="voltar">← ${esc(l.titulo)}</a>`;
+    const temVideo = licao.videoDrive || licao.videoDriveCurto;
+
+    const paginasHtml = nums.map(p => {
+      const pg = pagina(lid, p), info = A.infoPagina(lid, p);
+      return `
+        <div class="pagina-licao" id="pag-${p}">
+          <div class="pagina-licao-topo">
+            <h2>Página ${p} <span class="muted titulo-sub">· ${esc(pg.titulo)}</span></h2>
+            <div class="acoes">
+              ${info.estudada
+                ? `<span class="chip ok">✓ Estudada</span><button class="btn" data-desmarcar="${p}">↩ Voltar a por estudar</button>`
+                : `<button class="btn prim" data-estudei="${p}">✓ Já estudei</button>`}
+              ${pagsTeste.includes(p) ? `<a class="btn prim" href="#/testar/${a.id}/${p}">✏️ Testar esta página</a>` : ''}
+            </div>
+          </div>
+          <img src="${img(lid, pg)}" alt="Página ${p} do livro" data-ampliar="${img(lid, pg)}" class="pagina-img">
+        </div>`;
+    }).join('');
 
     render(`
       <section class="estudar">
         <div class="estudar-topo">
           ${voltar}
-          <h1>Página ${n} · ${esc(pg.titulo)}</h1>
+          <h1>${esc(licao.titulo)} <span class="muted titulo-sub">· páginas ${nums[0]}${nums.length > 1 ? ' a ' + nums.at(-1) : ''}</span></h1>
         </div>
-        <div class="estudar-corpo">
-          <figure class="pagina-grande">
-            <img src="${img(lid, pg)}" alt="Página ${n} do livro" data-ampliar="${img(lid, pg)}">
-            <figcaption class="muted">Clica na página para a ver em grande.</figcaption>
-          </figure>
-          <aside class="lado">
-            <div class="cartao">
-              <h2>🎬 Vídeo da lição</h2>
-              ${blocoVideo(l, n)}
-            </div>
-            <div class="cartao">
-              <h2>Quando acabares de ler</h2>
-              <button class="btn ${info.estudada ? '' : 'prim'}" id="estudei" ${info.estudada ? 'disabled' : ''}>${info.estudada ? '✓ Já estudaste esta página' : '✓ Já estudei esta página'}</button>
-              ${dentro ? `<a class="btn prim" href="#/testar/${a.id}/${n}">✏️ Testar esta página</a>` : ''}
-              <p class="muted">Tempo nesta página: ${fmt(info.segundos)}</p>
-            </div>
-            <div class="navegar">
-              ${ant ? `<a class="btn" href="#/estudar/${lid}/${ant.numero}${sufixo}">← Pág. ${ant.numero}</a>` : '<span></span>'}
-              ${seg ? `<a class="btn" href="#/estudar/${lid}/${seg.numero}${sufixo}">Pág. ${seg.numero} →</a>` : ''}
-            </div>
-          </aside>
+        ${temVideo ? `<div class="cartao video-licao"><h2>🎬 Vídeo da lição</h2>${blocoVideo(l, n)}</div>` : licao.video ? '<p class="muted">🎬 O vídeo desta lição ainda não está pronto.</p>' : ''}
+        <p class="muted">Lê as páginas com atenção (clica numa página para a ver em grande). Depois marca-as como estudadas e testa-te.</p>
+        ${paginasHtml}
+        <div class="navegar">
+          ${ant ? `<a class="btn" href="#/estudar/${lid}/${ant.paginas[0]}${sufixo}">← Lição anterior</a>` : '<span></span>'}
+          ${seg ? `<a class="btn" href="#/estudar/${lid}/${seg.paginas[0]}${sufixo}">Lição seguinte →</a>` : ''}
         </div>
       </section>`);
-    document.getElementById('estudei').onclick = () => { A.marcarEstudada(lid, n); ecraEstudar(lid, n, a); };
+    $app.querySelectorAll('[data-estudei]').forEach(bt => bt.onclick = () => { A.marcarEstudada(lid, +bt.dataset.estudei); ecraEstudar(lid, +bt.dataset.estudei, a); });
+    $app.querySelectorAll('[data-desmarcar]').forEach(bt => bt.onclick = () => { A.desmarcarEstudada(lid, +bt.dataset.desmarcar); ecraEstudar(lid, +bt.dataset.desmarcar, a); });
+    if (n !== nums[0]) document.getElementById('pag-' + n)?.scrollIntoView();
   }
 
   // ---------- escolher modo e dificuldade ----------

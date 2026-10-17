@@ -98,6 +98,16 @@ const Armazenamento = (() => {
       db?.from('paginas_estudadas').upsert({ conteudo: livro, pagina }).then(({ error }) => avisar(error));
     },
 
+    // Para desfazer um "Já estudei" carregado sem querer, ou para repetir a página.
+    desmarcarEstudada(livro, pagina) {
+      const p = infoPagina(livro, pagina);
+      if (!p.estudada) return;
+      p.estudada = false;
+      delete p.data;
+      guardarLocal();
+      db?.from('paginas_estudadas').delete().eq('conteudo', livroId(livro)).eq('pagina', pagina).then(({ error }) => avisar(error));
+    },
+
     // Cada resposta conta para o histórico da pergunta: as erradas (ou certas com ajuda)
     // voltam a aparecer mais vezes nos testes seguintes.
     registarTeste(teste) {
