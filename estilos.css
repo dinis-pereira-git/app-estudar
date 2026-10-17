@@ -57,12 +57,43 @@ main { max-width: 1150px; margin: 0 auto; padding: 24px 16px 60px; }
 .progresso { height: 8px; background: var(--fundo); border-radius: 999px; overflow: hidden; margin: 10px 0 16px; }
 .progresso > div { height: 100%; background: var(--prim); transition: width .3s; }
 
-/* matéria */
-.plano { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 14px; }
-.plano select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--linha); }
+/* capa */
+.capa { text-align: center; padding: 30px 0; }
+.capa h1 { font-size: 34px; }
+.disciplinas { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; margin-top: 28px; text-align: left; }
+.disc-cartao { display: flex; flex-direction: column; gap: 6px; padding: 24px; background: var(--cartao); border: 2px solid var(--linha); border-radius: 18px; text-decoration: none; color: var(--texto); transition: transform .15s, border-color .15s; }
+.disc-cartao:hover { transform: translateY(-3px); border-color: var(--prim); }
+.disc-icone { font-size: 48px; line-height: 1; }
+.disc-nome { font-size: 28px; }
+.disc-prox { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--linha); font-size: 15px; }
+
+/* disciplina */
+.titulo-sub { font-size: 16px; font-weight: normal; }
+.seccao-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.seccao-topo h1, .seccao-topo h2 { margin-bottom: 10px; }
+.testes-grelha { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.teste-cartao { display: flex; flex-direction: column; gap: 4px; padding: 16px; border: 2px solid var(--linha); border-radius: 14px; text-decoration: none; color: var(--texto); background: var(--cartao); }
+.teste-cartao:hover { border-color: var(--prim); background: #f7f9ff; }
+.teste-cartao b { font-size: 19px; }
+.teste-cartao .progresso { margin: 8px 0 2px; }
+.livros { display: flex; flex-direction: column; gap: 10px; }
+.livro-cartao { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--linha); border-radius: 12px; text-decoration: none; color: var(--texto); }
+.livro-cartao:hover { border-color: var(--prim); }
+.livro-capa { font-size: 34px; }
+
+/* gerir testes */
+.form-teste { background: var(--fundo); margin: 16px 0; }
+.form-teste h2 { margin-top: 0; }
+.campos { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.campos label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
+.campos input, .campos select { font: inherit; font-size: 16px; padding: 8px 10px; border: 1px solid var(--linha); border-radius: 8px; color: var(--texto); background: #fff; }
+.linha-botoes.esquerda { justify-content: flex-start; }
+.acoes-tabela { white-space: nowrap; text-align: right; }
+.acoes-tabela .btn { padding: 5px 10px; font-size: 14px; }
+
+/* páginas */
 .pag-lista { list-style: none; padding: 0; margin: 0; }
 .pag-linha { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--linha); }
-.pag-linha.fora { opacity: .5; }
 .mini { width: 64px; height: 90px; object-fit: cover; object-position: top; border: 1px solid var(--linha); border-radius: 6px; cursor: zoom-in; }
 .pag-info { flex: 1; }
 .estado { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }

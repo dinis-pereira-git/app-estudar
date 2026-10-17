@@ -1,20 +1,23 @@
-// Guarda o progresso da Leonor.
+// Guarda o progresso da Leonor e os testes da escola.
 // - Com Supabase: dados online, iguais em qualquer PC onde se entre com a conta.
 // - Sem Supabase (modo local): fica só no browser deste PC (localStorage).
 // Em ambos os casos o estado vive em memória com a mesma forma; as escritas vão para o destino escolhido.
 const Armazenamento = (() => {
   const CHAVE = 'app-estudar-v1';
-  const vazio = () => ({ tempoPorDia: {}, paginas: {}, testes: [], historico: {}, planos: {} });
+  // Nomes antigos de livros, de antes da organização por disciplina/livro.
+  const ALIAS = { 'hgp-c3': 'hgp-viajantes6' };
+  const vazio = () => ({ tempoPorDia: {}, paginas: {}, testes: [], historico: {}, avaliacoes: [] });
   let estado = vazio();
   let db = null;              // cliente Supabase, ou null em modo local
-  let tempoPendente = {};     // "dia|conteudo|pagina" → segundos ainda por enviar
+  let tempoPendente = {};     // "dia|livro|pagina" → segundos ainda por enviar
 
   const hoje = () => new Date().toLocaleDateString('sv'); // AAAA-MM-DD
+  const livroId = id => ALIAS[id] || id;
   const guardarLocal = () => { if (!db) try { localStorage.setItem(CHAVE, JSON.stringify(estado)); } catch {} };
   const avisar = erro => { if (erro) console.error('Erro a guardar no Supabase:', erro.message || erro); };
 
-  function infoPagina(conteudo, pagina) {
-    return estado.paginas[`${conteudo}:${pagina}`] ||= { estudada: false, segundos: 0 };
+  function infoPagina(livro, pagina) {
+    return estado.paginas[`${livroId(livro)}:${pagina}`] ||= { estudada: false, segundos: 0 };
   }
 
   function contarNoHistorico(teste) {
@@ -24,20 +27,23 @@ const Armazenamento = (() => {
     }
   }
 
+  const normalizarTeste = t => { t.livro = livroId(t.livro || t.conteudo); return t; };
+
   async function iniciar(cliente) {
     db = cliente;
     estado = vazio();
     if (!db) {
       try { estado = Object.assign(vazio(), JSON.parse(localStorage.getItem(CHAVE)) || {}); } catch {}
+      estado.testes.forEach(normalizarTeste);
       return;
     }
-    const [tempo, estudadas, testes, planos] = await Promise.all([
+    const [tempo, estudadas, testes, avaliacoes] = await Promise.all([
       db.from('tempo').select('dia, conteudo, pagina, segundos'),
       db.from('paginas_estudadas').select('conteudo, pagina, data'),
       db.from('testes').select('registo').order('data'),
-      db.from('planos').select('conteudo, de, ate'),
+      db.from('avaliacoes').select('*').order('periodo').order('data'),
     ]);
-    const erro = [tempo, estudadas, testes, planos].find(r => r.error);
+    const erro = [tempo, estudadas, testes, avaliacoes].find(r => r.error);
     if (erro) throw erro.error;
 
     for (const t of tempo.data) {
@@ -45,9 +51,9 @@ const Armazenamento = (() => {
       if (t.conteudo && t.pagina) infoPagina(t.conteudo, t.pagina).segundos += t.segundos;
     }
     for (const p of estudadas.data) Object.assign(infoPagina(p.conteudo, p.pagina), { estudada: true, data: p.data });
-    estado.testes = testes.data.map(r => r.registo);
+    estado.testes = testes.data.map(r => normalizarTeste(r.registo));
     estado.testes.forEach(contarNoHistorico);
-    for (const p of planos.data) estado.planos[p.conteudo] = { de: p.de, ate: p.ate };
+    estado.avaliacoes = avaliacoes.data;
 
     setInterval(enviarTempo, 30000);
     addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') enviarTempo(); });
@@ -60,8 +66,8 @@ const Armazenamento = (() => {
     const lote = tempoPendente;
     tempoPendente = {};
     for (const [chave, segundos] of Object.entries(lote)) {
-      const [dia, conteudo, pagina] = chave.split('|');
-      db.rpc('somar_tempo', { p_dia: dia, p_conteudo: conteudo, p_pagina: +pagina, p_segundos: segundos })
+      const [dia, livro, pagina] = chave.split('|');
+      db.rpc('somar_tempo', { p_dia: dia, p_conteudo: livro, p_pagina: +pagina, p_segundos: segundos })
         .then(({ error }) => { if (error) { avisar(error); tempoPendente[chave] = (tempoPendente[chave] || 0) + segundos; } });
     }
   }
@@ -73,22 +79,22 @@ const Armazenamento = (() => {
     hoje,
     infoPagina,
 
-    adicionarTempo(segundos, conteudo, pagina) {
+    adicionarTempo(segundos, livro, pagina) {
       const d = hoje();
       estado.tempoPorDia[d] = (estado.tempoPorDia[d] || 0) + segundos;
-      if (conteudo && pagina) infoPagina(conteudo, pagina).segundos += segundos;
-      const chave = `${d}|${conteudo || ''}|${pagina || 0}`;
+      if (livro && pagina) infoPagina(livro, pagina).segundos += segundos;
+      const chave = `${d}|${livro || ''}|${pagina || 0}`;
       tempoPendente[chave] = (tempoPendente[chave] || 0) + segundos;
       guardarLocal();
     },
 
-    marcarEstudada(conteudo, pagina) {
-      const p = infoPagina(conteudo, pagina);
+    marcarEstudada(livro, pagina) {
+      const p = infoPagina(livro, pagina);
       if (p.estudada) return;
       p.estudada = true;
       p.data = new Date().toISOString();
       guardarLocal();
-      db?.from('paginas_estudadas').upsert({ conteudo, pagina }).then(({ error }) => avisar(error));
+      db?.from('paginas_estudadas').upsert({ conteudo: livro, pagina }).then(({ error }) => avisar(error));
     },
 
     // Cada resposta conta para o histórico da pergunta: as erradas (ou certas com ajuda)
@@ -100,14 +106,30 @@ const Armazenamento = (() => {
       db?.from('testes').insert({ registo: teste, data: teste.data }).then(({ error }) => avisar(error));
     },
 
-    plano(conteudo, paginas) {
-      return estado.planos[conteudo] || { de: paginas[0], ate: paginas[paginas.length - 1] };
+    async guardarAvaliacao(a) {
+      const dados = { disciplina: a.disciplina, periodo: a.periodo, nome: a.nome, data: a.data || null, livro: a.livro, de: a.de, ate: a.ate };
+      let guardada;
+      if (db) {
+        const pedido = a.id ? db.from('avaliacoes').update(dados).eq('id', a.id) : db.from('avaliacoes').insert(dados);
+        const { data, error } = await pedido.select().single();
+        if (error) throw error;
+        guardada = data;
+      } else {
+        guardada = { ...dados, id: a.id || Date.now() };
+      }
+      const i = estado.avaliacoes.findIndex(x => x.id === guardada.id);
+      if (i >= 0) estado.avaliacoes[i] = guardada; else estado.avaliacoes.push(guardada);
+      guardarLocal();
+      return guardada;
     },
 
-    definirPlano(conteudo, de, ate) {
-      estado.planos[conteudo] = { de: Math.min(de, ate), ate: Math.max(de, ate) };
+    async apagarAvaliacao(id) {
+      if (db) {
+        const { error } = await db.from('avaliacoes').delete().eq('id', id);
+        if (error) throw error;
+      }
+      estado.avaliacoes = estado.avaliacoes.filter(a => a.id !== id);
       guardarLocal();
-      db?.from('planos').upsert({ conteudo, ...estado.planos[conteudo] }).then(({ error }) => avisar(error));
     },
 
     exportar() {

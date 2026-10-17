@@ -1,7 +1,19 @@
-[
-  {
-    "id": "hgp-c3",
-    "banco": "2026-2027/HGP/perguntas-c3.json",
-    "base": "2026-2027/HGP/"
-  }
-]
+{
+  "disciplinas": [
+    {
+      "id": "hgp",
+      "nome": "HGP",
+      "nomeCompleto": "História e Geografia de Portugal",
+      "icone": "🏰",
+      "livros": [
+        {
+          "id": "hgp-viajantes6",
+          "titulo": "Viajantes 6 · Conteúdos do 5.º ano",
+          "descricao": "Caderno de revisão do 5.º ano do Viajantes 6 (ASA)",
+          "base": "2026-2027/HGP/Viajantes6-Conteudos5ano/",
+          "bancos": ["2026-2027/HGP/Viajantes6-Conteudos5ano/perguntas-c3.json"]
+        }
+      ]
+    }
+  ]
+}
