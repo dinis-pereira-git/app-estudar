@@ -287,7 +287,6 @@ const App = (() => {
   function linhaLicao(lid, g, a) {
     const l = livros[lid];
     const titulo = g.licao?.titulo || pagina(lid, g.nums[0]).titulo;
-    const nota = melhorNotaLicao(lid, g.nums);
     const nPerg = l.perguntas.filter(q => g.nums.includes(q.pagina)).length;
     const temVideo = g.licao && (g.licao.videoDrive || g.licao.videoDriveCurto);
     return `
@@ -297,8 +296,6 @@ const App = (() => {
           <b>${esc(titulo)}</b> <span class="muted">· ${intervalo(g.nums)}</span>
           <div class="estado">
             ${licaoEstudada(lid, g.nums) ? '<span class="chip ok">✓ Estudada</span>' : '<span class="chip">Por estudar</span>'}
-            ${nota != null ? `<span class="chip ${nota >= 70 ? 'ok' : 'aviso'}">Melhor nota: ${nota}%</span>` : ''}
-            ${nivelDominado(lid, g.nums) ? `<span class="chip ok" title="Nível em que já acertou ${DOMINIO}% ou mais">🏅 ${NIVEL[nivelDominado(lid, g.nums)]}</span>` : ''}
             ${temVideo ? '<span class="chip ok">🎬 Com vídeo</span>' : g.licao?.video ? '<span class="chip">Vídeo em breve</span>' : ''}
             <span class="muted">${nPerg} perguntas</span>
           </div>
@@ -307,7 +304,25 @@ const App = (() => {
           <a class="btn ${a ? '' : 'prim'}" href="#/estudar/${lid}/${g.nums[0]}${a ? '/' + a.id : ''}">📖 Estudar</a>
           ${a ? `<a class="btn prim" href="#/testar/${a.id}/${g.nums[0]}">✏️ Testar</a>` : ''}
         </div>
+        ${miniProgresso(lid, g.nums)}
       </li>`;
+  }
+
+  // O mesmo progresso da tabela do painel, em pequeno: % das perguntas certas sem ajuda,
+  // por estilo (✍️ escrita / ⚡ escolha múltipla) e nível. Mostra o que falta praticar.
+  function miniProgresso(lid, nums) {
+    const p = progressoNiveis(lid, nums);
+    const cel = c => {
+      if (!c.total) return '<td class="muted">—</td>';
+      const v = pct(c.certas, c.total);
+      return `<td class="cel-nivel ${v >= 80 ? 'bom' : v >= 40 ? 'medio' : v > 0 ? 'baixo' : ''}" title="${c.certas} de ${c.total} perguntas certas sem ajuda${c.ajuda ? `; mais ${c.ajuda} só com ajuda` : ''}">${v}%${c.ajuda ? '<sup>💡</sup>' : ''}</td>`;
+    };
+    return `
+      <table class="mini-niveis" title="Perguntas certas sem ajuda, por estilo e nível">
+        <tr><th></th><th>★</th><th>★★</th><th>★★★</th></tr>
+        <tr><th title="Respostas escritas (como na escola)">✍️</th>${[1, 2, 3].map(n => cel(p['escola' + n])).join('')}</tr>
+        <tr><th title="Escolha múltipla">⚡</th>${[1, 2, 3].map(n => cel(p['escolha' + n])).join('')}</tr>
+      </table>`;
   }
 
   // ---------- um teste da escola ----------

@@ -114,6 +114,10 @@ main { max-width: 1150px; margin: 0 auto; padding: 24px 16px 60px; }
 .pag-info { flex: 1; }
 .estado { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 .acoes { display: flex; gap: 8px; }
+table.mini-niveis { border-collapse: collapse; font-size: 12px; flex: none; width: auto; margin: 0; }
+.mini-niveis th, .mini-niveis td { padding: 2px 6px; text-align: center; border: 1px solid var(--linha); min-width: 38px; }
+.mini-niveis th { font-weight: 600; color: var(--muted); background: var(--fundo); }
+.mini-niveis sup { font-size: 9px; }
 .global { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; padding: 16px; background: var(--fundo); border-radius: 12px; }
 
 /* estudar */
