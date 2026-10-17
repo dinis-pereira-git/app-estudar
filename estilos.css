@@ -161,7 +161,9 @@ main { max-width: 1150px; margin: 0 auto; padding: 24px 16px 60px; }
 .recorte img { position: absolute; max-width: none; }
 .pagina-marcada.grande { flex: none; width: min(1000px, 100%); align-self: flex-start; }
 .pagina-marcada.grande img { border: 0; }
-.teste-acoes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; margin-top: -6px; }
+.minis { display: flex; gap: 4px; flex: none; }
+.acoes-licao { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; background: var(--cartao); border: 1px solid var(--linha); border-radius: 12px; padding: 12px; margin: 14px 0; }
+.teste-acoes {display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; margin-top: -6px; }
 .teste-acoes .btn { padding: 6px 12px; font-size: 14px; }
 .aviso-teste { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; border: 2px solid var(--prim); margin-bottom: 14px; }
 

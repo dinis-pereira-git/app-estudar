@@ -39,9 +39,24 @@ const App = (() => {
 
   const pagina = (lid, n) => livros[lid].paginas.find(p => p.numero === n);
   const img = (lid, pg) => livros[lid].url(pg.imagem);
-  const avaliacao = id => A.estado.avaliacoes.find(a => String(a.id) === String(id));
-  const nomeAvaliacao = a => `${a.periodo}.º Período · ${a.nome}`;
+  // O livro inteiro também funciona como "teste" (id "L-<livro>"), para se poder testar logo depois de estudar.
+  function avaliacaoLivro(lid) {
+    const l = livros[lid];
+    if (!l) return null;
+    const nums = l.paginas.map(p => p.numero);
+    return { id: 'L-' + lid, livro: lid, disciplina: l.disciplina, de: Math.min(...nums), ate: Math.max(...nums), nome: l.titulo, livroInteiro: true };
+  }
+  const avaliacao = id => String(id).startsWith('L-') ? avaliacaoLivro(String(id).slice(2)) : A.estado.avaliacoes.find(a => String(a.id) === String(id));
+  const nomeAvaliacao = a => a.livroInteiro ? `📕 ${a.nome}` : `${a.periodo}.º Período · ${a.nome}`;
   const paginasDaAvaliacao = a => (livros[a.livro]?.paginas || []).map(p => p.numero).filter(n => n >= a.de && n <= a.ate);
+  // Uma lição = as páginas de um vídeo (normalmente 2). Estuda-se, marca-se e testa-se lição a lição.
+  function licaoDe(lid, n, a) {
+    const licao = livros[lid].licoes.find(x => x.paginas.includes(n)) || { titulo: pagina(lid, n)?.titulo || `Página ${n}`, paginas: [n] };
+    const dentro = a ? paginasDaAvaliacao(a) : null;
+    return { ...licao, nums: licao.paginas.filter(p => pagina(lid, p) && (!dentro || dentro.includes(p))) };
+  }
+  const licaoEstudada = (lid, nums) => nums.every(p => A.infoPagina(lid, p).estudada);
+  const intervalo = nums => nums.length > 1 ? `páginas ${nums[0]} a ${nums.at(-1)}` : `página ${nums[0]}`;
   const avaliacoesDe = did => A.estado.avaliacoes.filter(a => a.disciplina === did)
     .sort((x, y) => x.periodo - y.periodo || String(x.data || '9999').localeCompare(String(y.data || '9999')));
 
@@ -62,7 +77,8 @@ const App = (() => {
     const ts = A.estado.testes.filter(t => t.percent != null && filtro(t));
     return ts.length ? Math.max(...ts.map(t => t.percent)) : null;
   }
-  const melhorNotaPagina = (lid, n) => melhorNota(t => t.livro === lid && t.tipo === 'pagina' && t.pagina === n);
+  // Conta também os testes antigos, que eram por página.
+  const melhorNotaLicao = (lid, nums) => melhorNota(t => t.livro === lid && t.tipo !== 'global' && nums.includes(t.pagina));
 
   function progressoAvaliacao(a) {
     const pags = paginasDaAvaliacao(a);
@@ -96,15 +112,19 @@ const App = (() => {
   }, true);
 
   // ---------- tempo de estudo ativo ----------
-  // Só conta quando a janela está visível e houve interação no último minuto.
+  // Só conta quando a janela está visível e houve interação nos últimos 2 minutos (ler uma página
+  // pode levar isso sem mexer no rato). Enquanto vê o vídeo, os cliques ficam dentro do leitor do
+  // Drive e a app não os vê: se o leitor tem o foco (ela clicou no play), conta até 15 minutos.
   // O painel e a gestão de testes não contam (o pai pode estar só a consultar).
   let ultimaInteracao = Date.now();
   ['mousemove', 'keydown', 'click', 'scroll', 'touchstart', 'wheel'].forEach(ev =>
     addEventListener(ev, () => { ultimaInteracao = Date.now(); }, { passive: true }));
+  const aVerVideo = () => document.activeElement?.closest?.('.video-drive') != null;
   const atualizarRelogio = () => { $relogio.textContent = `⏱ Hoje: ${fmt(A.estado.tempoPorDia[A.hoje()] || 0)}`; };
   setInterval(() => {
     const naoConta = /^#\/(painel|gerir)/.test(location.hash);
-    if (pronto && !naoConta && document.visibilityState === 'visible' && Date.now() - ultimaInteracao < 60000) {
+    const limite = aVerVideo() ? 15 * 60000 : 2 * 60000;
+    if (pronto && !naoConta && document.visibilityState === 'visible' && Date.now() - ultimaInteracao < limite) {
       A.adicionarTempo(5, contexto?.livro, contexto?.pagina);
       atualizarRelogio();
     }
@@ -120,6 +140,7 @@ const App = (() => {
     });
     if (ecra === 'd' && disciplinas[a]) return ecraDisciplina(a);
     if (ecra === 'l' && livros[a]) return ecraLivro(a);
+    if (ecra === 't' && avaliacao(a)?.livroInteiro) return ecraLivro(avaliacao(a).livro);
     if (ecra === 't' && avaliacao(a)) return ecraAvaliacao(avaliacao(a));
     if (ecra === 'estudar' && livros[a]) return ecraEstudar(a, +b, c && avaliacao(c));
     if (ecra === 'testar' && avaliacao(a)) return ecraDificuldade(avaliacao(a), b === 'global' ? null : +b);
@@ -194,24 +215,28 @@ const App = (() => {
       </section>`);
   }
 
-  // ---------- lista de páginas (usada no teste e no livro) ----------
-  function linhaPagina(lid, pg, a) {
-    const info = A.infoPagina(lid, pg.numero);
-    const nota = melhorNotaPagina(lid, pg.numero);
-    const nPerg = livros[lid].perguntas.filter(q => q.pagina === pg.numero).length;
+  // ---------- lista de lições (usada no teste e no livro) ----------
+  function linhaLicao(lid, g, a) {
+    const l = livros[lid];
+    const titulo = g.licao?.titulo || pagina(lid, g.nums[0]).titulo;
+    const nota = melhorNotaLicao(lid, g.nums);
+    const nPerg = l.perguntas.filter(q => g.nums.includes(q.pagina)).length;
+    const temVideo = g.licao && (g.licao.videoDrive || g.licao.videoDriveCurto);
     return `
       <li class="pag-linha">
-        <img src="${img(lid, pg)}" alt="" class="mini" data-ampliar="${img(lid, pg)}">
+        <div class="minis">${g.nums.map(n => { const pg = pagina(lid, n); return `<img src="${img(lid, pg)}" alt="Página ${n}" class="mini" data-ampliar="${img(lid, pg)}">`; }).join('')}</div>
         <div class="pag-info">
-          <b>Página ${pg.numero}</b> <span class="muted">· ${esc(pg.titulo)}</span>
+          <b>${esc(titulo)}</b> <span class="muted">· ${intervalo(g.nums)}</span>
           <div class="estado">
-            ${info.estudada ? '<span class="chip ok">✓ Estudada</span>' : '<span class="chip">Por estudar</span>'}
+            ${licaoEstudada(lid, g.nums) ? '<span class="chip ok">✓ Estudada</span>' : '<span class="chip">Por estudar</span>'}
             ${nota != null ? `<span class="chip ${nota >= 70 ? 'ok' : 'aviso'}">Melhor nota: ${nota}%</span>` : ''}
+            ${temVideo ? '<span class="chip ok">🎬 Com vídeo</span>' : g.licao?.video ? '<span class="chip">Vídeo em breve</span>' : ''}
             <span class="muted">${nPerg} perguntas</span>
           </div>
         </div>
         <div class="acoes">
-          ${a ? `<a class="btn prim" href="#/testar/${a.id}/${pg.numero}">✏️ Testar</a>` : `<a class="btn" href="#/estudar/${lid}/${pg.numero}">📖 Ler</a>`}
+          <a class="btn ${a ? '' : 'prim'}" href="#/estudar/${lid}/${g.nums[0]}${a ? '/' + a.id : ''}">📖 Estudar</a>
+          ${a ? `<a class="btn prim" href="#/testar/${a.id}/${g.nums[0]}">✏️ Testar</a>` : ''}
         </div>
       </li>`;
   }
@@ -228,7 +253,7 @@ const App = (() => {
         <h1>${esc(nomeAvaliacao(a))}</h1>
         <p class="muted">📅 ${quandoE(a.data)} · 📕 ${esc(l.titulo)}, páginas ${a.de} a ${a.ate}</p>
         <div class="progresso"><div style="width:${pct(estudadas, total)}%"></div></div>
-        <p class="muted">${estudadas} de ${total} páginas estudadas. Estuda e testa página a página; no fim faz o teste global.</p>
+        <p class="muted">${estudadas} de ${total} páginas estudadas. Estuda e testa lição a lição; no fim faz o teste global.</p>
         ${listaPorLicao(a.livro, pags, a)}
         <div class="global">
           <div><b>Teste global</b><br><span class="muted">Todas as páginas deste teste (${a.de} a ${a.ate}), com perguntas de vários níveis.</span></div>
@@ -244,15 +269,14 @@ const App = (() => {
       <section class="cartao">
         <a href="#/d/${l.disciplina}" class="voltar">← ${esc(disciplinas[l.disciplina].nome)}</a>
         <h1>📕 ${esc(l.titulo)}</h1>
-        <p class="muted">${esc(l.descricao || '')}. Aqui podes ler qualquer página. Para fazer testes, abre um dos testes da disciplina.</p>
-        ${listaPorLicao(lid, l.paginas.map(p => p.numero), null)}
+        <p class="muted">${esc(l.descricao || '')}. Estuda cada lição e testa-te logo a seguir. Para treinar para um teste da escola, abre esse teste na disciplina.</p>
+        ${listaPorLicao(lid, l.paginas.map(p => p.numero), avaliacaoLivro(lid))}
       </section>`);
   }
 
-  // As páginas aparecem agrupadas por lição (como os vídeos), com um botão para o vídeo da lição.
+  // Uma linha por lição (as páginas de um vídeo), com estudar e testar.
   function listaPorLicao(lid, nums, a) {
     const l = livros[lid];
-    const sufixo = a ? '/' + a.id : '';
     const grupos = [];
     for (const n of nums) {
       const licao = l.licoes.find(x => x.paginas.includes(n));
@@ -260,18 +284,7 @@ const App = (() => {
       if (ultimo && ultimo.licao === licao && licao) ultimo.nums.push(n);
       else grupos.push({ licao, nums: [n] });
     }
-    return grupos.map(g => {
-      const temVideo = g.licao && (g.licao.videoDrive || g.licao.videoDriveCurto);
-      const cabecalho = g.licao ? `
-        <div class="licao-topo">
-          <div><b>${esc(g.licao.titulo)}</b><br><span class="muted">Páginas ${g.licao.paginas[0]} a ${g.licao.paginas.at(-1)}</span></div>
-          <div class="acoes">
-            ${temVideo ? '<span class="chip ok">🎬 Com vídeo</span>' : g.licao.video ? '<span class="chip">Vídeo em breve</span>' : ''}
-            <a class="btn prim" href="#/estudar/${lid}/${g.nums[0]}${sufixo}">📖 Estudar a lição</a>
-          </div>
-        </div>` : '';
-      return `<div class="licao">${cabecalho}<ol class="pag-lista">${g.nums.map(n => linhaPagina(lid, pagina(lid, n), a)).join('')}</ol></div>`;
-    }).join('');
+    return `<ol class="pag-lista">${grupos.map(g => linhaLicao(lid, g, a)).join('')}</ol>`;
   }
 
   // Os vídeos ficam no Google Drive do pai, partilhados com a conta Google da Leonor
@@ -300,13 +313,12 @@ const App = (() => {
   }
 
   // ---------- estudar uma lição ----------
-  // Estuda-se por lição (normalmente 2 páginas): o vídeo em cima e as páginas da lição por baixo.
-  // Os testes continuam a ser página a página.
+  // Estuda-se, marca-se e testa-se por lição (normalmente 2 páginas): o vídeo em cima e as páginas por baixo.
   function ecraEstudar(lid, n, a) {
     const l = livros[lid];
     if (!pagina(lid, n)) return ecraLivro(lid);
-    const licao = l.licoes.find(x => x.paginas.includes(n)) || { titulo: pagina(lid, n).titulo, paginas: [n] };
-    const nums = licao.paginas.filter(p => pagina(lid, p));
+    const licao = licaoDe(lid, n);
+    const nums = licao.nums;
     contexto = { livro: lid, pagina: nums[0] };
     const sufixo = a ? '/' + a.id : '';
     const pagsTeste = a ? paginasDaAvaliacao(a) : [];
@@ -315,20 +327,20 @@ const App = (() => {
     const ant = todasLicoes[idx - 1], seg = todasLicoes[idx + 1];
     const voltar = a ? `<a href="#/t/${a.id}" class="voltar">← ${esc(nomeAvaliacao(a))}</a>` : `<a href="#/l/${lid}" class="voltar">← ${esc(l.titulo)}</a>`;
     const temVideo = licao.videoDrive || licao.videoDriveCurto;
+    const paginaTeste = nums.find(p => pagsTeste.includes(p));
+    const acoesLicao = `
+      <div class="acoes-licao">
+        ${licaoEstudada(lid, nums)
+          ? '<span class="chip ok">✓ Lição estudada</span><button class="btn" data-desmarcar>↩ Voltar a por estudar</button>'
+          : '<button class="btn prim" data-estudei>✓ Já estudei esta lição</button>'}
+        ${paginaTeste != null ? `<a class="btn prim" href="#/testar/${a.id}/${paginaTeste}">✏️ Testar esta lição</a>` : ''}
+      </div>`;
 
     const paginasHtml = nums.map(p => {
-      const pg = pagina(lid, p), info = A.infoPagina(lid, p);
+      const pg = pagina(lid, p);
       return `
         <div class="pagina-licao" id="pag-${p}">
-          <div class="pagina-licao-topo">
-            <h2>Página ${p} <span class="muted titulo-sub">· ${esc(pg.titulo)}</span></h2>
-            <div class="acoes">
-              ${info.estudada
-                ? `<span class="chip ok">✓ Estudada</span><button class="btn" data-desmarcar="${p}">↩ Voltar a por estudar</button>`
-                : `<button class="btn prim" data-estudei="${p}">✓ Já estudei</button>`}
-              ${pagsTeste.includes(p) ? `<a class="btn prim" href="#/testar/${a.id}/${p}">✏️ Testar esta página</a>` : ''}
-            </div>
-          </div>
+          <h2>Página ${p} <span class="muted titulo-sub">· ${esc(pg.titulo)}</span></h2>
           <img src="${img(lid, pg)}" alt="Página ${p} do livro" data-ampliar="${img(lid, pg)}" class="pagina-img">
         </div>`;
     }).join('');
@@ -341,15 +353,17 @@ const App = (() => {
           <h1>${esc(licao.titulo)} <span class="muted titulo-sub">· páginas ${nums[0]}${nums.length > 1 ? ' a ' + nums.at(-1) : ''}</span></h1>
         </div>
         ${temVideo ? `<div class="cartao video-licao"><h2>🎬 Vídeo da lição</h2>${blocoVideo(l, n)}</div>` : licao.video ? '<p class="muted">🎬 O vídeo desta lição ainda não está pronto.</p>' : ''}
-        <p class="muted">Lê as páginas com atenção (clica numa página para a ver em grande). Depois marca-as como estudadas e testa-te.</p>
+        <p class="muted">Vê o vídeo e lê as páginas com atenção (clica numa página para a ver em grande). Depois marca a lição como estudada e testa-te.</p>
+        ${acoesLicao}
         ${paginasHtml}
+        ${acoesLicao}
         <div class="navegar">
           ${ant ? `<a class="btn" href="#/estudar/${lid}/${ant.paginas[0]}${sufixo}">← Lição anterior</a>` : '<span></span>'}
           ${seg ? `<a class="btn" href="#/estudar/${lid}/${seg.paginas[0]}${sufixo}">Lição seguinte →</a>` : ''}
         </div>
       </section>`);
-    $app.querySelectorAll('[data-estudei]').forEach(bt => bt.onclick = () => { A.marcarEstudada(lid, +bt.dataset.estudei); ecraEstudar(lid, +bt.dataset.estudei, a); });
-    $app.querySelectorAll('[data-desmarcar]').forEach(bt => bt.onclick = () => { A.desmarcarEstudada(lid, +bt.dataset.desmarcar); ecraEstudar(lid, +bt.dataset.desmarcar, a); });
+    $app.querySelectorAll('[data-estudei]').forEach(bt => bt.onclick = () => { nums.forEach(p => A.marcarEstudada(lid, p)); ecraEstudar(lid, n, a); });
+    $app.querySelectorAll('[data-desmarcar]').forEach(bt => bt.onclick = () => { nums.forEach(p => A.desmarcarEstudada(lid, p)); ecraEstudar(lid, n, a); });
     if (n !== nums[0]) document.getElementById('pag-' + n)?.scrollIntoView();
   }
 
@@ -363,15 +377,18 @@ const App = (() => {
   };
   let modoEscolhido = 'escola';
 
-  function ecraDificuldade(a, alvo) {
+  // n = uma página da lição a testar (ou null para o teste global).
+  function ecraDificuldade(a, n) {
     const paginas = paginasDaAvaliacao(a);
-    const anteriores = alvo == null ? [] : paginas.filter(p => p < alvo);
-    const titulo = alvo == null ? `Teste global · páginas ${a.de} a ${a.ate}` : `Testar a página ${alvo}`;
+    const licao = n == null ? null : licaoDe(a.livro, n, a);
+    const alvo = licao?.nums ?? null;
+    const anteriores = alvo == null ? [] : paginas.filter(p => p < alvo[0]);
+    const titulo = alvo == null ? `Teste global · páginas ${a.de} a ${a.ate}` : `Testar a lição: ${esc(licao.titulo)}`;
     const explica = alvo == null
       ? 'Perguntas de todas as páginas deste teste.'
       : anteriores.length
-        ? `A maior parte das perguntas é da página ${alvo}, e algumas são das páginas anteriores (${anteriores.join(', ')}) para não te esqueceres.`
-        : `Todas as perguntas são da página ${alvo}.`;
+        ? `A maior parte das perguntas é desta lição (${intervalo(alvo)}), e algumas são das lições anteriores para não te esqueceres.`
+        : `Todas as perguntas são desta lição (${intervalo(alvo)}).`;
     // O teste real é sempre sobre a matéria toda.
     const modos = alvo == null ? MODOS : { escola: MODOS.escola, rapido: MODOS.rapido };
     if (!modos[modoEscolhido]) modoEscolhido = 'escola';
@@ -399,9 +416,9 @@ const App = (() => {
         </div>
       </section>`);
 
-    $app.querySelectorAll('[data-modo]').forEach(bt => bt.onclick = () => { modoEscolhido = bt.dataset.modo; ecraDificuldade(a, alvo); });
+    $app.querySelectorAll('[data-modo]').forEach(bt => bt.onclick = () => { modoEscolhido = bt.dataset.modo; ecraDificuldade(a, n); });
     $app.querySelectorAll('[data-dif]').forEach(bt => bt.onclick = () => {
-      if (alvo != null) A.marcarEstudada(a.livro, alvo);
+      if (alvo != null) alvo.forEach(p => A.marcarEstudada(a.livro, p));
       const dificuldade = bt.dataset.dif;
       const modo = modoEscolhido;
       const todas = livros[a.livro].perguntas;
@@ -658,7 +675,7 @@ const App = (() => {
     teste.registo = {
       id: Date.now(), data: new Date().toISOString(), disciplina: a.disciplina, livro: a.livro,
       avaliacao: a.id, avaliacaoNome: nomeAvaliacao(a), modo: teste.modo, estado: real ? 'por corrigir' : 'feito',
-      tipo: teste.alvo == null ? 'global' : 'pagina', pagina: teste.alvo,
+      tipo: teste.alvo == null ? 'global' : 'licao', pagina: teste.alvo?.[0] ?? null, licao: teste.alvo,
       paginas: [teste.paginas[0], teste.paginas[teste.paginas.length - 1]],
       dificuldade: teste.dificuldade, total: teste.respostas.length, ...nota, respostas: teste.respostas,
     };
@@ -699,7 +716,7 @@ const App = (() => {
           </ul>` : '<p>Acertaste tudo sem ajuda! 🎉</p>'}
         <div class="linha-botoes">
           <a class="btn prim" href="#/testar/${t.avaliacao}/${t.pagina ?? 'global'}">🔁 Repetir</a>
-          ${t.pagina ? `<a class="btn" href="#/estudar/${t.livro}/${t.pagina}/${t.avaliacao}">📖 Rever a página</a>` : ''}
+          ${t.pagina ? `<a class="btn" href="#/estudar/${t.livro}/${t.pagina}/${t.avaliacao}">📖 Rever a lição</a>` : ''}
           <a class="btn" href="#/t/${t.avaliacao}">Voltar ao teste</a>
         </div>
       </section>`);
@@ -890,7 +907,7 @@ const App = (() => {
         <thead><tr><th>Página</th><th>Estudada</th><th>Tempo</th><th>Testes</th><th>Melhor nota</th></tr></thead>
         <tbody>${l.paginas.map(pg => {
           const info = A.infoPagina(l.id, pg.numero);
-          const nTestes = e.testes.filter(t => t.livro === l.id && t.pagina === pg.numero).length;
+          const nTestes = e.testes.filter(t => t.livro === l.id && (t.licao || [t.pagina]).includes(pg.numero)).length;
           const nota = melhorNotaPagina(l.id, pg.numero);
           return `<tr><td>${pg.numero} · ${esc(pg.titulo)}</td><td>${info.estudada ? '✓' : '—'}</td><td>${fmt(info.segundos)}</td><td>${nTestes}</td><td>${nota != null ? nota + '%' : '—'}</td></tr>`;
         }).join('')}</tbody>
@@ -944,7 +961,7 @@ const App = (() => {
           <thead><tr><th>Data</th><th>Teste da escola</th><th>Treino</th><th>Dificuldade</th><th>Nota</th></tr></thead>
           <tbody>${[...e.testes].reverse().slice(0, 15).map(t => `<tr><td>${dataCurta(t.data)}</td>
             <td>${esc(t.avaliacaoNome || '—')}</td>
-            <td>${t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : `Página ${t.pagina}`}</td>
+            <td>${t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`}</td>
             <td>${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}</td>
             <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>` : '<span class="chip aviso">Por corrigir</span>'}</td></tr>`).join('')}</tbody>
         </table>` : '<p class="muted">Ainda não há treinos.</p>'}

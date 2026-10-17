@@ -1,5 +1,5 @@
 // Motor de testes.
-// - Teste de página: ~70% perguntas da página nova + ~30% das páginas anteriores do plano.
+// - Teste de lição: ~70% perguntas da lição + ~30% das páginas anteriores do plano.
 // - Teste global: todas as páginas do plano.
 // - A dificuldade escolhida define a mistura de níveis.
 // - Perguntas erradas antes têm mais probabilidade de voltar a sair.
@@ -11,7 +11,7 @@ const Motor = (() => {
     misto:   { 1: 0.4, 2: 0.4, 3: 0.2 },
   };
   const PERCENT_PAGINA_NOVA = 0.7;
-  const TAMANHO = { pagina: 8, global: 15 };
+  const TAMANHO = { licao: 10, global: 15 };
 
   const baralhar = lista => {
     const a = [...lista];
@@ -63,9 +63,10 @@ const Motor = (() => {
       const pool = perguntas.filter(q => paginas.includes(q.pagina));
       selecao = porNivel(pool, Math.min(TAMANHO.global, pool.length), mistura, peso);
     } else {
-      const novas = perguntas.filter(q => q.pagina === alvo);
-      const antigas = perguntas.filter(q => paginas.includes(q.pagina) && q.pagina < alvo);
-      const n = Math.min(TAMANHO.pagina, novas.length + antigas.length);
+      // alvo = páginas da lição
+      const novas = perguntas.filter(q => alvo.includes(q.pagina));
+      const antigas = perguntas.filter(q => paginas.includes(q.pagina) && q.pagina < Math.min(...alvo));
+      const n = Math.min(TAMANHO.licao, novas.length + antigas.length);
       const nNovas = Math.min(novas.length, antigas.length ? Math.round(n * PERCENT_PAGINA_NOVA) : n);
       selecao = porNivel(novas, nNovas, mistura, peso);
       selecao.push(...porNivel(antigas, n - selecao.length, mistura, peso));
