@@ -127,6 +127,16 @@ const Armazenamento = (() => {
       }
     },
 
+    // Grava alterações a um teste já registado sem voltar a contar as respostas no histórico
+    // (usado na revisão das autoavaliações pelo pai).
+    async guardarRegisto(teste) {
+      guardarLocal();
+      if (db) {
+        const { error } = await db.from('testes').update({ registo: teste }).eq('registo->>id', String(teste.id));
+        if (error) throw error;
+      }
+    },
+
     async guardarAvaliacao(a) {
       const dados = { disciplina: a.disciplina, periodo: a.periodo, nome: a.nome, data: a.data || null, livro: a.livro, de: a.de, ate: a.ate };
       let guardada;

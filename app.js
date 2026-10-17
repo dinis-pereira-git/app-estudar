@@ -95,7 +95,8 @@ const App = (() => {
     const grupos = gruposLicoes(a.livro, paginasDaAvaliacao(a));
     const total = grupos.length;
     const estudadas = grupos.filter(g => licaoEstudada(a.livro, g.nums));
-    const niveis = grupos.reduce((s, g) => s + nivelDominado(a.livro, g.nums), 0);
+    const pn = Object.values(progressoNiveis(a.livro, paginasDaAvaliacao(a)));
+    const totalPerg = pn.reduce((s, c) => s + c.total, 0), certasPerg = pn.reduce((s, c) => s + c.certas, 0);
     const datas = grupos.flatMap(g => g.nums.map(n => A.infoPagina(a.livro, n).data)).filter(Boolean).sort();
     const dia = iso => new Date(iso.slice(0, 10) + 'T12:00');
     const hoje = dia(A.hoje());
@@ -109,11 +110,36 @@ const App = (() => {
     }
     return {
       total, estudadas: estudadas.length, falta, ritmo, fim, diasAteTeste,
-      pctEstudado: pct(estudadas.length, total), pctDominado: pct(niveis, 3 * total),
+      pctEstudado: pct(estudadas.length, total), pctDominado: pct(certasPerg, totalPerg),
       // para acabar na véspera do teste
       porDia: falta > 0 && diasAteTeste > 1 ? falta / (diasAteTeste - 1) : null,
     };
   }
+  // Progresso por estilo e nível: % das perguntas desse nível que ela já acertou SEM ajuda, pelo menos
+  // uma vez (assim só sobe se praticar perguntas diferentes). As certas só com ajuda contam à parte (💡).
+  // Respostas que o pai, na revisão, marcou como mal autoavaliadas não contam como certas.
+  const ESTILOS = { escola: '✍️ Tipo escola (escrita)', escolha: '⚡ Escolha múltipla' };
+  const estiloDe = r => r.modo === 'escolha' ? 'escolha' : 'escola';
+  function progressoNiveis(lid, nums) {
+    const qs = livros[lid].perguntas.filter(q => nums.includes(q.pagina));
+    const certas = { escola: new Set(), escolha: new Set() }, ajuda = { escola: new Set(), escolha: new Set() };
+    A.estado.testes.forEach(t => t.livro === lid && t.modo !== 'real' && t.respostas.forEach(r => {
+      if (r.certa && r.auditoria !== 'mal') (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
+    }));
+    const res = {};
+    for (const e of Object.keys(ESTILOS)) for (const n of [1, 2, 3]) {
+      const lista = qs.filter(q => q.nivel === n && (e === 'escolha' ? q.opcoes : q.escrita));
+      res[e + n] = {
+        total: lista.length,
+        certas: lista.filter(q => certas[e].has(q.id)).length,
+        ajuda: lista.filter(q => !certas[e].has(q.id) && ajuda[e].has(q.id)).length,
+      };
+    }
+    return res;
+  }
+  const comAjuda = t => t.respostas.filter(r => r.ajuda).length;
+  // Respostas escritas em que foi ela a dizer se estava certa (pontos-chave marcados, ou "a minha também está certa").
+  const autoavaliadas = t => t.respostas.filter(r => r.autoavaliada || r.corrigidaPelaAluna || (r.modo === 'explica' && r.confirmada));
   const difSugerida = (lid, nums) => DIF_DE[Math.min(3, nivelDominado(lid, nums) + 1)];
 
   function progressoAvaliacao(a) {
@@ -158,7 +184,7 @@ const App = (() => {
   const aVerVideo = () => document.activeElement?.closest?.('.video-drive') != null;
   const atualizarRelogio = () => { $relogio.textContent = `⏱ Hoje: ${fmt(A.estado.tempoPorDia[A.hoje()] || 0)}`; };
   setInterval(() => {
-    const naoConta = /^#\/(painel|gerir)/.test(location.hash);
+    const naoConta = /^#\/(painel|gerir|revisao)/.test(location.hash);
     const limite = aVerVideo() ? 15 * 60000 : 2 * 60000;
     if (pronto && !naoConta && document.visibilityState === 'visible' && Date.now() - ultimaInteracao < limite) {
       A.adicionarTempo(5, contexto?.livro, contexto?.pagina);
@@ -172,7 +198,8 @@ const App = (() => {
     contexto = null;
     document.querySelectorAll('.barra nav a').forEach(el => {
       const alvo = el.getAttribute('href').slice(2);
-      el.classList.toggle('ativo', alvo === 'painel' ? ecra === 'painel' : ecra !== 'painel');
+      const doPai = ecra === 'painel' || ecra === 'revisao';
+      el.classList.toggle('ativo', alvo === 'painel' ? doPai : !doPai);
     });
     if (ecra === 'd' && disciplinas[a]) return ecraDisciplina(a);
     if (ecra === 'l' && livros[a]) return ecraLivro(a);
@@ -185,6 +212,7 @@ const App = (() => {
     if (ecra === 'resultado' && teste?.registo) return ecraResultado();
     if (ecra === 'real' && testeReal(a)) return ecraTesteReal(testeReal(a));
     if (ecra === 'painel') return ecraPainel();
+    if (ecra === 'revisao') return ecraRevisao(a === 'todas');
     ecraCapa();
   }
 
@@ -663,12 +691,14 @@ const App = (() => {
     document.getElementById('ajuda')?.addEventListener('click', () => { teste.ajuda = true; ecraPergunta(); });
     document.getElementById('seguinte')?.addEventListener('click', seguinte);
     document.getElementById('acertei')?.addEventListener('click', () => {
-      Object.assign(r, { pontuacao: 1, certa: true, corrigidaPelaAluna: true });
+      Object.assign(r, { pontuacao: 1, certa: true, corrigidaPelaAluna: true, autoavaliada: true });
       ecraPergunta();
     });
     document.getElementById('confirmar')?.addEventListener('click', () => {
-      const marcados = $app.querySelectorAll('[data-ponto]:checked').length;
-      Object.assign(r, { marcados, pontuacao: marcados / e.pontos.length, confirmada: true });
+      // Guarda quais os pontos-chave que ela marcou, para o pai poder rever a autoavaliação.
+      const pontosMarcados = [...$app.querySelectorAll('[data-ponto]:checked')].map(c => +c.dataset.ponto);
+      const marcados = pontosMarcados.length;
+      Object.assign(r, { marcados, pontosMarcados, pontuacao: marcados / e.pontos.length, confirmada: true, autoavaliada: true });
       r.certa = r.pontuacao === 1;
       ecraPergunta();
     });
@@ -753,6 +783,7 @@ const App = (() => {
         <h1>${mensagem}</h1>
         <div class="nota ${t.percent >= 70 ? 'bom' : t.percent >= 50 ? 'medio' : 'mau'}">${t.percent}%</div>
         <p>${t.pontos} pontos em ${t.total} perguntas · ${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯 Exato' : ''}</p>
+        ${comAjuda(t) ? `<p class="feedback ajuda">💡 Usaste ajuda em ${comAjuda(t)} de ${t.total} perguntas. Essas valem metade e ainda não contam como sabidas — tenta outra vez sem ajuda.</p>` : ''}
         <div class="niveis">
           ${[1, 2, 3].filter(n => t.porNivel[n]).map(n => `<span class="chip">${NIVEL[n]} ${t.porNivel[n].certas}/${t.porNivel[n].total}</span>`).join('')}
         </div>
@@ -927,6 +958,71 @@ const App = (() => {
     };
   }
 
+  // ---------- revisão das autoavaliações (para o pai) ----------
+  // Nas respostas escritas de explicar é ela que marca os pontos-chave que acertou, e nas curtas pode dizer
+  // "a minha resposta também está certa". Aqui o pai vê a resposta e o que ela marcou, e diz se concorda.
+  // "Não concordo" faz a resposta deixar de contar como certa no progresso.
+  function ecraRevisao(todas) {
+    const perguntaPorId = Object.fromEntries(Object.values(livros).flatMap(l => l.perguntas).map(q => [q.id, q]));
+    const itens = [...A.estado.testes].reverse().flatMap(t => autoavaliadas(t).map(r => ({ t, r })));
+    const porRever = itens.filter(x => !x.r.auditoria);
+    const revistas = itens.filter(x => x.r.auditoria);
+    const concordo = revistas.filter(x => x.r.auditoria === 'ok').length;
+    const mostrar = todas ? itens : porRever;
+
+    const cartao = ({ t, r }, i) => {
+      const q = perguntaPorId[r.id], e = q?.escrita;
+      let avaliacao;
+      if (r.modo === 'explica') {
+        avaliacao = e?.pontos ? `
+          <p class="muted">Pontos-chave — o que ela marcou como presente na resposta:</p>
+          <ul class="pontos-auditoria">${e.pontos.map((p, k) => {
+            const marcou = r.pontosMarcados ? r.pontosMarcados.includes(k) : null;
+            return `<li class="${marcou ? 'marcou' : marcou === false ? 'nao' : ''}">${marcou ? '☑' : marcou === false ? '☐' : '·'} ${esc(p)}</li>`;
+          }).join('')}</ul>
+          ${r.pontosMarcados ? '' : `<p class="muted">(Resposta antiga: só sabemos que marcou ${r.marcados ?? '?'} de ${e.pontos.length} pontos.)</p>`}` : '';
+      } else {
+        avaliacao = '<p><span class="chip aviso">A correção automática deu errado</span> e ela carregou em <b>"A minha resposta também está certa"</b>.</p>';
+      }
+      return `
+        <div class="cartao-revisao ${r.auditoria ? 'revista ' + r.auditoria : ''}">
+          <div class="seccao-topo"><span class="muted">${dataCurta(t.data)} · ${t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina ?? '—'}`} · ${NIVEL[r.nivel] || ''}</span>
+            ${r.auditoria ? `<span class="chip ${r.auditoria === 'ok' ? 'ok' : 'aviso'}">${r.auditoria === 'ok' ? '👍 Concordo' : '👎 Não concordo'}</span>` : '<span class="chip">Por rever</span>'}</div>
+          <p><b>${esc(r.pergunta || q?.pergunta || '')}</b></p>
+          <div class="a-tua"><b>Resposta dela:</b><br>${esc(r.texto) || '<i>(em branco)</i>'}</div>
+          ${avaliacao}
+          ${e?.modelo ? `<p><b>Resposta modelo:</b> ${esc(e.modelo)}</p>` : ''}
+          <p class="muted">Ela deu-se ${Math.round((r.pontuacao || 0) * 100)}% nesta resposta.</p>
+          <div class="linha-botoes esquerda">
+            <button class="btn ${r.auditoria === 'ok' ? 'prim' : ''}" data-aud="${i}" data-val="ok">👍 Autoavaliou-se bem</button>
+            <button class="btn ${r.auditoria === 'mal' ? 'perigo' : ''}" data-aud="${i}" data-val="mal">👎 Não estava certa</button>
+          </div>
+        </div>`;
+    };
+
+    render(`
+      <section class="cartao">
+        <a href="#/painel" class="voltar">← Painel</a>
+        <h1>🔍 Revisão das autoavaliações</h1>
+        <p class="muted">Respostas escritas em que foi a Leonor a dizer se estava certa. Confirma se concordas — as que marcares como "não estava certa" deixam de contar como certas no progresso.</p>
+        <div class="kpis">
+          <div class="kpi"><span>Por rever</span><b>${porRever.length}</b></div>
+          <div class="kpi"><span>Revistas</span><b>${revistas.length}</b></div>
+          <div class="kpi"><span>Autoavaliou-se bem</span><b>${revistas.length ? pct(concordo, revistas.length) + '%' : '—'}</b></div>
+        </div>
+        <p><a class="btn" href="${todas ? '#/revisao' : '#/revisao/todas'}">${todas ? 'Mostrar só as por rever' : 'Mostrar todas (também as já revistas)'}</a></p>
+        ${mostrar.length ? mostrar.map(cartao).join('') : `<p>${todas ? 'Ainda não há respostas autoavaliadas.' : '✅ Não há nada por rever.'}</p>`}
+      </section>`);
+
+    $app.querySelectorAll('[data-aud]').forEach(bt => bt.onclick = async () => {
+      const { t, r } = mostrar[+bt.dataset.aud];
+      r.auditoria = bt.dataset.val;
+      r.auditadoEm = new Date().toISOString();
+      try { await A.guardarRegisto(t); } catch (erro) { alert('Não foi possível guardar: ' + erro.message); }
+      const y = scrollY; ecraRevisao(todas); scrollTo(0, y);
+    });
+  }
+
   // ---------- painel ----------
   function ecraPainel() {
     const e = A.estado;
@@ -969,11 +1065,35 @@ const App = (() => {
             <span class="muted">${a.data ? quandoE(a.data) : 'Sem data'}</span></div>
           <div class="barra-rotulo"><span>📖 Estudado</span><b>${p.pctEstudado}%</b> <small class="muted">(${p.estudadas} de ${p.total} lições)</small></div>
           <div class="progresso"><div style="width:${p.pctEstudado}%"></div></div>
-          <div class="barra-rotulo"><span>🏅 Dominado</span><b>${p.pctDominado}%</b> <small class="muted">(níveis ★ a ★★★ com ${DOMINIO}% ou mais)</small></div>
+          <div class="barra-rotulo"><span>🏅 Dominado</span><b>${p.pctDominado}%</b> <small class="muted">(perguntas certas sem ajuda, nos 2 estilos e 3 níveis — ver tabela abaixo)</small></div>
           <div class="progresso dominado"><div style="width:${p.pctDominado}%"></div></div>
           <p>${previsao}</p>
           <p class="muted">${feitos.length} treino(s) feitos · melhor teste global: ${nota != null ? nota + '%' : '—'}</p>
         </div>`;
+    }).join('');
+
+    const celula = c => {
+      if (!c.total) return '<td class="muted">—</td>';
+      const p = pct(c.certas, c.total);
+      return `<td class="cel-nivel ${p >= 80 ? 'bom' : p >= 40 ? 'medio' : p > 0 ? 'baixo' : ''}" title="${c.certas} de ${c.total} perguntas certas sem ajuda${c.ajuda ? `; mais ${c.ajuda} só com ajuda` : ''}">${p}%${c.ajuda ? `<small> +${c.ajuda}💡</small>` : ''}</td>`;
+    };
+    const soma = linhas => Object.fromEntries(Object.keys(linhas[0] || {}).map(k => [k, linhas.reduce((s, x) => ({ total: s.total + x[k].total, certas: s.certas + x[k].certas, ajuda: s.ajuda + x[k].ajuda }), { total: 0, certas: 0, ajuda: 0 })]));
+    const chaves = Object.keys(ESTILOS).flatMap(e => [1, 2, 3].map(n => e + n));
+    const tabelasNiveis = Object.values(livros).map(l => {
+      const linhas = gruposLicoes(l.id, l.paginas.map(p => p.numero)).map(g => ({ g, p: progressoNiveis(l.id, g.nums) }));
+      const total = soma(linhas.map(x => x.p));
+      return `
+        <h3>${esc(disciplinas[l.disciplina].nome)} · ${esc(l.titulo)}</h3>
+        <div class="tabela-larga"><table class="tabela-niveis">
+          <thead>
+            <tr><th rowspan="2">Lição</th>${Object.values(ESTILOS).map(n => `<th colspan="3">${n}</th>`).join('')}</tr>
+            <tr>${chaves.map(k => `<th>${NIVEL[k.slice(-1)]}</th>`).join('')}</tr>
+          </thead>
+          <tbody>
+            ${linhas.map(({ g, p }) => `<tr><td>${esc(g.licao?.titulo || pagina(l.id, g.nums[0]).titulo)} <small class="muted">(${intervalo(g.nums)})</small></td>${chaves.map(k => celula(p[k])).join('')}</tr>`).join('')}
+            <tr class="total"><td><b>Total</b></td>${chaves.map(k => celula(total[k])).join('')}</tr>
+          </tbody>
+        </table></div>`;
     }).join('');
 
     const tabelasLicoes = Object.values(livros).map(l => `
@@ -1024,7 +1144,20 @@ const App = (() => {
         <p><label class="btn">📥 Carregar correção<input type="file" id="correcao" accept=".json,application/json" hidden></label> <span id="msg-correcao" class="muted"></span></p>`
         : '<p class="muted">Ainda não há testes reais. Faz-se no teste global, escolhendo "🎓 Teste real".</p>'}
 
-        <h2>Acertos por nível</h2>
+        <h2>🔍 Autoavaliações</h2>
+        ${(() => {
+          const itens = e.testes.flatMap(autoavaliadas), porRever = itens.filter(r => !r.auditoria).length;
+          const revistas = itens.filter(r => r.auditoria), ok = revistas.filter(r => r.auditoria === 'ok').length;
+          return `<p>${itens.length} resposta(s) escritas em que foi ela a corrigir-se · <b>${porRever} por rever</b>${revistas.length ? ` · autoavaliou-se bem em ${pct(ok, revistas.length)}% das revistas` : ''}.
+            <a class="btn ${porRever ? 'prim' : ''}" href="#/revisao">Rever autoavaliações</a></p>`;
+        })()}
+
+        <h2>Progresso por nível</h2>
+        <p class="muted">Percentagem das perguntas de cada nível que ela já acertou <b>sem ajuda</b>, pelo menos uma vez — só sobe se praticar perguntas diferentes, em cada estilo.
+          <b>+N💡</b> = perguntas que só acertou com ajuda (ainda não contam). O caminho certo é ★ → ★★ → ★★★, nos dois estilos.</p>
+        ${tabelasNiveis}
+
+        <h2>Acertos por nível <small class="muted">(todas as respostas, sem ajuda)</small></h2>
         <div class="niveis">
           ${[1, 2, 3].map(n => `<span class="chip">${NIVEL[n]} ${porNivel[n].t ? pct(porNivel[n].c, porNivel[n].t) + '%' : '—'} <small class="muted">(${porNivel[n].c}/${porNivel[n].t})</small></span>`).join('')}
         </div>
@@ -1035,12 +1168,14 @@ const App = (() => {
 
         <h2>Últimos treinos</h2>
         ${e.testes.length ? `<table>
-          <thead><tr><th>Data</th><th>Teste da escola</th><th>Treino</th><th>Dificuldade</th><th>Nota</th></tr></thead>
+          <thead><tr><th>Data</th><th>Teste da escola</th><th>Treino</th><th>Dificuldade</th><th>Nota</th><th title="Respostas em que pediu ajuda ou foi ver a matéria (valem metade)">💡 Com ajuda</th><th title="Respostas que ela própria corrigiu">✋ Autoavaliadas</th></tr></thead>
           <tbody>${[...e.testes].reverse().slice(0, 15).map(t => `<tr><td>${dataCurta(t.data)}</td>
             <td>${esc(t.avaliacaoNome || '—')}</td>
             <td>${t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`}</td>
             <td>${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯' : ''}</td>
-            <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>` : '<span class="chip aviso">Por corrigir</span>'}</td></tr>`).join('')}</tbody>
+            <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>` : '<span class="chip aviso">Por corrigir</span>'}</td>
+            <td>${comAjuda(t) ? `<span class="chip aviso">${comAjuda(t)} de ${t.total}</span>` : '—'}</td>
+            <td>${autoavaliadas(t).length ? `${autoavaliadas(t).length}${autoavaliadas(t).some(r => !r.auditoria) ? ' <small class="muted">(por rever)</small>' : ''}` : '—'}</td></tr>`).join('')}</tbody>
         </table>` : '<p class="muted">Ainda não há treinos.</p>'}
 
         <h2>Perguntas que custam mais</h2>
