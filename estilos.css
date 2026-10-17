@@ -109,6 +109,8 @@ main { max-width: 1150px; margin: 0 auto; padding: 24px 16px 60px; }
 .lado h2 { margin-top: 0; font-size: 17px; }
 .lado .btn { width: 100%; margin-bottom: 8px; }
 .lado video { width: 100%; border-radius: 8px; }
+.versoes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.versoes .btn { width: auto; flex: 1; padding: 6px 10px; font-size: 14px; margin: 0; }
 .video-drive { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #000; }
 .video-drive iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .navegar { display: flex; justify-content: space-between; gap: 8px; }

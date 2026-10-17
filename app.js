@@ -235,19 +235,27 @@ const App = (() => {
 
   // Os vídeos ficam no Google Drive do pai, partilhados com a conta Google da Leonor
   // (ocupam muito espaço para o Supabase). Em modo local usa-se o ficheiro da pasta Videos.
+  // Uma lição pode ter a explicação completa e um resumo curto; quando há os dois, a Leonor escolhe.
   function blocoVideo(l, n) {
     const licao = l.licoes.find(x => x.paginas.includes(n));
     if (!licao) return '<p class="muted">Ainda não há vídeo para esta página.</p>';
-    const paginas = `<p class="muted">Lição das páginas ${licao.paginas.join(' e ')}.</p>`;
-    if (licao.videoDrive) {
-      return `
-        <div class="video-drive"><iframe src="https://drive.google.com/file/d/${encodeURIComponent(licao.videoDrive)}/preview" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
-        ${paginas}
-        <a class="btn" href="https://drive.google.com/file/d/${encodeURIComponent(licao.videoDrive)}/view" target="_blank" rel="noopener">Abrir o vídeo no Drive ↗</a>
-        <p class="muted">Se o vídeo não aparecer, confirma que estás com a tua conta Google no Chrome.</p>`;
-    }
-    if (licao.video && !db) return `<video controls src="${l.url(licao.video)}"></video>${paginas}`;
-    return '<p class="muted">Ainda não há vídeo para esta lição.</p>';
+    const versoes = [
+      { nome: '🎓 Explicação completa', drive: licao.videoDrive },
+      { nome: '⚡ Resumo curto', drive: licao.videoDriveCurto },
+    ].filter(v => v.drive);
+    if (!versoes.length) return '<p class="muted">Ainda não há vídeo para esta lição.</p>';
+    const leitor = v => `<div class="video-drive"><iframe src="https://drive.google.com/file/d/${encodeURIComponent(v.drive)}/preview" allow="autoplay; fullscreen" allowfullscreen></iframe></div>`;
+    const botoes = versoes.length > 1
+      ? `<div class="versoes">${versoes.map((v, i) => `<button class="btn ${i === 0 ? 'prim' : ''}" data-versao="${i}">${v.nome}</button>`).join('')}</div>` : '';
+    setTimeout(() => $app.querySelectorAll('[data-versao]').forEach(bt => bt.onclick = () => {
+      const v = versoes[+bt.dataset.versao];
+      $app.querySelector('#leitor-video').innerHTML = leitor(v);
+      $app.querySelectorAll('[data-versao]').forEach(b => b.classList.toggle('prim', b === bt));
+    }), 0);
+    return `
+      ${botoes}
+      <div id="leitor-video">${leitor(versoes[0])}</div>
+      <p class="muted">Lição das páginas ${licao.paginas.join(' e ')}. Se o vídeo não aparecer, confirma que estás com a tua conta Google no Chrome.</p>`;
   }
 
   // ---------- estudar uma página ----------
