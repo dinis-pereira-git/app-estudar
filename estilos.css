@@ -109,6 +109,8 @@ main { max-width: 1150px; margin: 0 auto; padding: 24px 16px 60px; }
 .lado h2 { margin-top: 0; font-size: 17px; }
 .lado .btn { width: 100%; margin-bottom: 8px; }
 .lado video { width: 100%; border-radius: 8px; }
+.video-drive { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #000; }
+.video-drive iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .navegar { display: flex; justify-content: space-between; gap: 8px; }
 
 /* dificuldade */
@@ -141,6 +143,20 @@ main { max-width: 1150px; margin: 0 auto; padding: 24px 16px 60px; }
 .feedback .btn { margin-top: 10px; }
 .ajuda-pagina { display: flex; gap: 14px; align-items: flex-start; background: var(--cartao); border-radius: 10px; padding: 10px; margin-top: 10px; }
 .ajuda-pagina img { width: 140px; border: 1px solid var(--linha); border-radius: 6px; cursor: zoom-in; }
+
+/* modos e respostas escritas */
+.modos { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.modo { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 14px; border: 2px solid var(--linha); border-radius: 12px; background: var(--cartao); font: inherit; cursor: pointer; }
+.modo:hover { border-color: var(--prim); }
+.modo.ativo { border-color: var(--prim); background: #eef3ff; }
+.escrita { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.escrita input, .escrita textarea { width: 100%; font: inherit; font-size: 19px; padding: 12px 14px; border: 2px solid var(--linha); border-radius: 12px; color: var(--texto); }
+.escrita input:focus, .escrita textarea:focus { outline: none; border-color: var(--prim); }
+.a-tua { background: var(--fundo); border-radius: 10px; padding: 10px 14px; margin: 8px 0; white-space: pre-wrap; }
+.ponto { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; margin: 6px 0; background: var(--cartao); border-radius: 8px; cursor: pointer; }
+.ponto input { width: 20px; height: 20px; margin-top: 2px; }
+.respostas-real { text-align: left; padding-left: 22px; }
+.respostas-real li { margin-bottom: 18px; }
 
 /* resultado */
 .nota { font-size: 64px; font-weight: 800; margin: 6px 0; }

@@ -59,7 +59,7 @@ const App = (() => {
   }
 
   function melhorNota(filtro) {
-    const ts = A.estado.testes.filter(filtro);
+    const ts = A.estado.testes.filter(t => t.percent != null && filtro(t));
     return ts.length ? Math.max(...ts.map(t => t.percent)) : null;
   }
   const melhorNotaPagina = (lid, n) => melhorNota(t => t.livro === lid && t.tipo === 'pagina' && t.pagina === n);
@@ -109,6 +109,7 @@ const App = (() => {
     if (ecra === 'gerir' && disciplinas[a]) return ecraGerir(a, b);
     if (ecra === 'teste' && teste) return ecraPergunta();
     if (ecra === 'resultado' && teste?.registo) return ecraResultado();
+    if (ecra === 'real' && testeReal(a)) return ecraTesteReal(testeReal(a));
     if (ecra === 'painel') return ecraPainel();
     ecraCapa();
   }
@@ -232,6 +233,23 @@ const App = (() => {
       </section>`);
   }
 
+  // Os vídeos ficam no Google Drive do pai, partilhados com a conta Google da Leonor
+  // (ocupam muito espaço para o Supabase). Em modo local usa-se o ficheiro da pasta Videos.
+  function blocoVideo(l, n) {
+    const licao = l.licoes.find(x => x.paginas.includes(n));
+    if (!licao) return '<p class="muted">Ainda não há vídeo para esta página.</p>';
+    const paginas = `<p class="muted">Lição das páginas ${licao.paginas.join(' e ')}.</p>`;
+    if (licao.videoDrive) {
+      return `
+        <div class="video-drive"><iframe src="https://drive.google.com/file/d/${encodeURIComponent(licao.videoDrive)}/preview" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
+        ${paginas}
+        <a class="btn" href="https://drive.google.com/file/d/${encodeURIComponent(licao.videoDrive)}/view" target="_blank" rel="noopener">Abrir o vídeo no Drive ↗</a>
+        <p class="muted">Se o vídeo não aparecer, confirma que estás com a tua conta Google no Chrome.</p>`;
+    }
+    if (licao.video && !db) return `<video controls src="${l.url(licao.video)}"></video>${paginas}`;
+    return '<p class="muted">Ainda não há vídeo para esta lição.</p>';
+  }
+
   // ---------- estudar uma página ----------
   function ecraEstudar(lid, n, a) {
     const l = livros[lid], pg = pagina(lid, n);
@@ -257,8 +275,8 @@ const App = (() => {
           </figure>
           <aside class="lado">
             <div class="cartao">
-              <h2>🎬 Vídeo-resumo</h2>
-              ${pg.video ? `<video controls src="${l.url(pg.video)}"></video>` : '<p class="muted">Ainda não há vídeo para esta página.</p>'}
+              <h2>🎬 Vídeo da lição</h2>
+              ${blocoVideo(l, n)}
             </div>
             <div class="cartao">
               <h2>Quando acabares de ler</h2>
@@ -276,7 +294,16 @@ const App = (() => {
     document.getElementById('estudei').onclick = () => { A.marcarEstudada(lid, n); ecraEstudar(lid, n, a); };
   }
 
-  // ---------- escolher dificuldade ----------
+  // ---------- escolher modo e dificuldade ----------
+  // escola: respostas escritas com correção logo a seguir (as curtas automáticas, as de explicar por pontos-chave);
+  // rapido: escolha múltipla; real: só escrita, sem ajuda nem correção — o pai pede a correção ao Claude no fim.
+  const MODOS = {
+    escola: { nome: '✍️ Como no teste da escola', desc: 'Respostas escritas, com correção logo a seguir' },
+    rapido: { nome: '⚡ Treino rápido', desc: 'Escolha múltipla' },
+    real:   { nome: '🎓 Teste real', desc: 'Só respostas escritas, sem ajuda. O pai pede a correção no fim' },
+  };
+  let modoEscolhido = 'escola';
+
   function ecraDificuldade(a, alvo) {
     const paginas = paginasDaAvaliacao(a);
     const anteriores = alvo == null ? [] : paginas.filter(p => p < alvo);
@@ -286,12 +313,22 @@ const App = (() => {
       : anteriores.length
         ? `A maior parte das perguntas é da página ${alvo}, e algumas são das páginas anteriores (${anteriores.join(', ')}) para não te esqueceres.`
         : `Todas as perguntas são da página ${alvo}.`;
+    // O teste real é sempre sobre a matéria toda.
+    const modos = alvo == null ? MODOS : { escola: MODOS.escola, rapido: MODOS.rapido };
+    if (!modos[modoEscolhido]) modoEscolhido = 'escola';
 
     render(`
       <section class="cartao centro">
         <a href="#/t/${a.id}" class="voltar">← ${esc(nomeAvaliacao(a))}</a>
         <h1>${titulo}</h1>
         <p>${explica}</p>
+        <h2>Como queres treinar?</h2>
+        <div class="modos">
+          ${Object.entries(modos).map(([k, m]) => `
+            <button class="modo ${k === modoEscolhido ? 'ativo' : ''}" data-modo="${k}">
+              <b>${m.nome}</b><span class="muted">${m.desc}</span>
+            </button>`).join('')}
+        </div>
         <h2>Escolhe a dificuldade</h2>
         <div class="dificuldades">
           ${Object.entries(DIFICULDADES).map(([k, d]) => `
@@ -303,36 +340,67 @@ const App = (() => {
         </div>
       </section>`);
 
+    $app.querySelectorAll('[data-modo]').forEach(bt => bt.onclick = () => { modoEscolhido = bt.dataset.modo; ecraDificuldade(a, alvo); });
     $app.querySelectorAll('[data-dif]').forEach(bt => bt.onclick = () => {
       if (alvo != null) A.marcarEstudada(a.livro, alvo);
       const dificuldade = bt.dataset.dif;
+      const modo = modoEscolhido;
+      const todas = livros[a.livro].perguntas;
       teste = {
-        avaliacao: a, livro: a.livro, alvo, paginas, dificuldade, inicio: new Date().toISOString(),
-        perguntas: Motor.gerar({ perguntas: livros[a.livro].perguntas, historico: A.estado.historico, paginas, alvo, dificuldade }),
+        avaliacao: a, livro: a.livro, alvo, paginas, dificuldade, modo, inicio: new Date().toISOString(),
+        perguntas: Motor.gerar({ perguntas: modo === 'rapido' ? todas : todas.filter(q => q.escrita), historico: A.estado.historico, paginas, alvo, dificuldade }),
         indice: 0, respostas: [], ajuda: false, respondida: null,
       };
       location.hash = '#/teste';
     });
   }
 
+  // ---------- correção das respostas curtas ----------
+  // Ignora maiúsculas, acentos e pontuação; aceita plurais. "aceites" é uma lista de grupos:
+  // a resposta tem de ter um termo de CADA grupo (ex.: [["magalhaes"], ["elcano"]]).
+  const normalizar = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+  const escRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  function verificarCurta(texto, grupos) {
+    const t = normalizar(texto);
+    if (!t) return false;
+    return grupos.every(g => g.some(v => new RegExp(`(^|\\s)${escRegex(normalizar(v))}(s|es)?(?=\\s|$)`).test(t)));
+  }
+
   // ---------- pergunta ----------
+  const ehEscrita = q => teste.modo !== 'rapido' && q.escrita;
+
+  function blocoPagina(q) {
+    const pg = pagina(teste.livro, q.pagina);
+    return `
+      <div class="ajuda-pagina">
+        <img src="${img(teste.livro, pg)}" alt="Página ${q.pagina}" data-ampliar="${img(teste.livro, pg)}">
+        <div><b>📍 Procura na página ${q.pagina}:</b><br>${esc(q.onde)}<br><span class="muted">Clica na página para a ver em grande.</span></div>
+      </div>`;
+  }
+
+  function topoPergunta(q) {
+    const total = teste.perguntas.length;
+    return `
+      <div class="teste-topo">
+        <span>${teste.modo === 'real' ? '🎓 Teste real · ' : ''}Pergunta ${teste.indice + 1} de ${total}</span>
+        <span class="nivel n${q.nivel}" title="Nível de dificuldade">${NIVEL[q.nivel]}</span>
+      </div>
+      <div class="progresso"><div style="width:${pct(teste.indice, total)}%"></div></div>`;
+  }
+
+  const botaoSeguinte = () => `<button class="btn prim grande" id="seguinte">${teste.indice + 1 < teste.perguntas.length ? 'Seguinte →' : 'Ver resultado 🏁'}</button>`;
+
   function ecraPergunta() {
     const q = teste.perguntas[teste.indice];
-    const pg = pagina(teste.livro, q.pagina);
+    if (ehEscrita(q)) return ecraPerguntaEscrita(q);
     const r = teste.respondida;
-    const total = teste.perguntas.length;
 
     const opcoes = q.opcoes.map((o, i) => {
       let cls = '';
       if (r != null) cls = i === q.correta ? 'certa' : i === r ? 'errada' : 'apagada';
       return `<button class="opcao ${cls}" data-op="${i}" ${r != null ? 'disabled' : ''}><span class="letra">${'abcd'[i]})</span> ${esc(o)}</button>`;
     }).join('');
-
-    const blocoPagina = `
-      <div class="ajuda-pagina">
-        <img src="${img(teste.livro, pg)}" alt="Página ${q.pagina}" data-ampliar="${img(teste.livro, pg)}">
-        <div><b>📍 Procura na página ${q.pagina}:</b><br>${esc(q.onde)}<br><span class="muted">Clica na página para a ver em grande.</span></div>
-      </div>`;
 
     let feedback = '';
     if (r != null) {
@@ -342,20 +410,16 @@ const App = (() => {
           <h3>${certa ? (teste.ajuda ? '👍 Certo, com ajuda!' : '🎉 Muito bem!') : '💪 Não faz mal, vamos ver onde está.'}</h3>
           ${certa ? '' : `<p><b>Resposta certa:</b> ${esc(q.opcoes[q.correta])}</p>`}
           <p>${esc(q.explicacao)}</p>
-          ${certa ? '' : blocoPagina}
-          <button class="btn prim grande" id="seguinte">${teste.indice + 1 < total ? 'Seguinte →' : 'Ver resultado 🏁'}</button>
+          ${certa ? '' : blocoPagina(q)}
+          ${botaoSeguinte()}
         </div>`;
     } else if (teste.ajuda) {
-      feedback = `<div class="feedback ajuda">${blocoPagina}</div>`;
+      feedback = `<div class="feedback ajuda">${blocoPagina(q)}</div>`;
     }
 
     render(`
       <section class="cartao teste">
-        <div class="teste-topo">
-          <span>Pergunta ${teste.indice + 1} de ${total}</span>
-          <span class="nivel n${q.nivel}" title="Nível de dificuldade">${NIVEL[q.nivel]}</span>
-        </div>
-        <div class="progresso"><div style="width:${pct(teste.indice, total)}%"></div></div>
+        ${topoPergunta(q)}
         <h2 class="enunciado">${esc(q.pergunta)}</h2>
         <div class="opcoes">${opcoes}</div>
         ${r == null && !teste.ajuda ? '<button class="btn ajuda-btn" id="ajuda">💡 Preciso de ajuda</button>' : ''}
@@ -367,11 +431,115 @@ const App = (() => {
     document.getElementById('seguinte')?.addEventListener('click', seguinte);
   }
 
+  function ecraPerguntaEscrita(q) {
+    const e = q.escrita, r = teste.respondida, real = teste.modo === 'real';
+    const ultima = teste.indice + 1 >= teste.perguntas.length;
+    let corpo;
+
+    if (!r) {
+      corpo = `
+        <form id="f-escrita" class="escrita">
+          ${e.tipo === 'curta'
+            ? '<input id="resp" autocomplete="off" spellcheck="false" placeholder="Escreve a tua resposta">'
+            : '<textarea id="resp" rows="4" placeholder="Escreve a tua resposta com as tuas palavras"></textarea>'}
+          <button class="btn prim">${real ? (ultima ? 'Entregar teste 🏁' : 'Seguinte →') : e.tipo === 'curta' ? 'Responder' : 'Ver a resposta'}</button>
+        </form>
+        ${real ? '' : teste.ajuda ? `<div class="feedback ajuda">${blocoPagina(q)}</div>` : '<button class="btn ajuda-btn" id="ajuda">💡 Preciso de ajuda</button>'}`;
+    } else if (e.tipo === 'curta') {
+      const certa = r.pontuacao === 1;
+      corpo = `
+        <div class="a-tua">A tua resposta: <b>${esc(r.texto) || '—'}</b></div>
+        <div class="feedback ${certa ? 'bom' : 'mau'}">
+          <h3>${certa ? (teste.ajuda ? '👍 Certo, com ajuda!' : '🎉 Muito bem!') : '💪 Não faz mal, vamos ver onde está.'}</h3>
+          <p><b>Resposta:</b> ${esc(e.modelo)}</p>
+          <p>${esc(q.explicacao)}</p>
+          ${certa ? '' : blocoPagina(q)}
+          <div class="linha-botoes esquerda">
+            ${certa ? '' : '<button class="btn" id="acertei">A minha resposta também está certa</button>'}
+            ${botaoSeguinte()}
+          </div>
+        </div>`;
+    } else if (!r.confirmada) {
+      corpo = `
+        <div class="a-tua"><b>A tua resposta:</b><br>${esc(r.texto) || '—'}</div>
+        <div class="feedback ajuda">
+          <h3>Compara com os pontos-chave</h3>
+          <p class="muted">Marca os pontos que a tua resposta tem, mesmo que escritos com outras palavras.</p>
+          ${e.pontos.map((p, i) => `<label class="ponto"><input type="checkbox" data-ponto="${i}"> ${esc(p)}</label>`).join('')}
+          <p><b>Resposta modelo:</b> ${esc(e.modelo)}</p>
+          <button class="btn prim" id="confirmar">Confirmar</button>
+        </div>`;
+    } else {
+      const certa = r.pontuacao === 1;
+      corpo = `
+        <div class="a-tua"><b>A tua resposta:</b><br>${esc(r.texto) || '—'}</div>
+        <div class="feedback ${certa ? 'bom' : r.pontuacao > 0 ? 'ajuda' : 'mau'}">
+          <h3>${certa ? '🎉 Tinhas todos os pontos-chave!' : r.pontuacao > 0 ? `🙂 Tinhas ${r.marcados} de ${e.pontos.length} pontos-chave.` : '💪 Não faz mal, vamos ver onde está.'}</h3>
+          <p>${esc(q.explicacao)}</p>
+          ${certa ? '' : blocoPagina(q)}
+          ${botaoSeguinte()}
+        </div>`;
+    }
+
+    render(`
+      <section class="cartao teste">
+        ${topoPergunta(q)}
+        <h2 class="enunciado">${esc(e.pergunta || q.pergunta)}</h2>
+        ${corpo}
+      </section>`);
+
+    const f = document.getElementById('f-escrita');
+    if (f) {
+      const $r = document.getElementById('resp');
+      $r.focus();
+      f.onsubmit = ev => { ev.preventDefault(); responderEscrita(q, $r.value.trim()); };
+    }
+    document.getElementById('ajuda')?.addEventListener('click', () => { teste.ajuda = true; ecraPergunta(); });
+    document.getElementById('seguinte')?.addEventListener('click', seguinte);
+    document.getElementById('acertei')?.addEventListener('click', () => {
+      Object.assign(r, { pontuacao: 1, certa: true, corrigidaPelaAluna: true });
+      ecraPergunta();
+    });
+    document.getElementById('confirmar')?.addEventListener('click', () => {
+      const marcados = $app.querySelectorAll('[data-ponto]:checked').length;
+      Object.assign(r, { marcados, pontuacao: marcados / e.pontos.length, confirmada: true });
+      r.certa = r.pontuacao === 1;
+      ecraPergunta();
+    });
+  }
+
   function responder(i) {
     const q = teste.perguntas[teste.indice];
+    const certa = i === q.correta;
     teste.respondida = i;
-    teste.respostas.push({ id: q.id, pagina: q.pagina, nivel: q.nivel, certa: i === q.correta, ajuda: teste.ajuda });
+    teste.respostas.push({ id: q.id, pagina: q.pagina, nivel: q.nivel, modo: 'escolha', certa, pontuacao: certa ? 1 : 0, ajuda: teste.ajuda });
     ecraPergunta();
+  }
+
+  function responderEscrita(q, texto) {
+    const e = q.escrita;
+    const r = { id: q.id, pagina: q.pagina, nivel: q.nivel, modo: e.tipo, pergunta: e.pergunta || q.pergunta, texto, ajuda: teste.ajuda };
+    if (teste.modo === 'real') {
+      Object.assign(r, { pontuacao: null, certa: false });
+      teste.respostas.push(r);
+      teste.respondida = r;
+      return seguinte();
+    }
+    if (e.tipo === 'curta') {
+      r.pontuacao = verificarCurta(texto, e.aceites) ? 1 : 0;
+      r.certa = r.pontuacao === 1;
+    }
+    teste.respostas.push(r);
+    teste.respondida = r;
+    ecraPergunta();
+  }
+
+  // Pontos: cada pergunta vale 1 (as de explicar valem a fração de pontos-chave); com ajuda vale metade.
+  function calcularNota(respostas) {
+    const pontos = Math.round(respostas.reduce((s, r) => s + (r.pontuacao || 0) * (r.ajuda ? 0.5 : 1), 0) * 10) / 10;
+    const porNivel = {};
+    respostas.forEach(r => { const n = porNivel[r.nivel] ||= { certas: 0, total: 0 }; n.total++; if (r.pontuacao === 1 && !r.ajuda) n.certas++; });
+    return { pontos, porNivel, percent: pct(pontos, respostas.length) };
   }
 
   function seguinte() {
@@ -381,18 +549,15 @@ const App = (() => {
     teste.respondida = null;
     if (teste.indice < teste.perguntas.length) return ecraPergunta();
 
-    // Certa sem ajuda = 1 ponto; certa com ajuda = meio ponto.
-    const pontos = teste.respostas.reduce((s, r) => s + (r.certa ? (r.ajuda ? 0.5 : 1) : 0), 0);
-    const porNivel = {};
-    teste.respostas.forEach(r => { const n = porNivel[r.nivel] ||= { certas: 0, total: 0 }; n.total++; if (r.certa && !r.ajuda) n.certas++; });
     const a = teste.avaliacao;
+    const real = teste.modo === 'real';
+    const nota = real ? { pontos: null, porNivel: {}, percent: null } : calcularNota(teste.respostas);
     teste.registo = {
-      data: new Date().toISOString(), disciplina: a.disciplina, livro: a.livro,
-      avaliacao: a.id, avaliacaoNome: nomeAvaliacao(a),
+      id: Date.now(), data: new Date().toISOString(), disciplina: a.disciplina, livro: a.livro,
+      avaliacao: a.id, avaliacaoNome: nomeAvaliacao(a), modo: teste.modo, estado: real ? 'por corrigir' : 'feito',
       tipo: teste.alvo == null ? 'global' : 'pagina', pagina: teste.alvo,
       paginas: [teste.paginas[0], teste.paginas[teste.paginas.length - 1]],
-      dificuldade: teste.dificuldade, total: teste.respostas.length, pontos,
-      percent: pct(pontos, teste.respostas.length), porNivel, respostas: teste.respostas,
+      dificuldade: teste.dificuldade, total: teste.respostas.length, ...nota, respostas: teste.respostas,
     };
     A.registarTeste(teste.registo);
     location.hash = '#/resultado';
@@ -401,21 +566,33 @@ const App = (() => {
   // ---------- resultado ----------
   function ecraResultado() {
     const t = teste.registo;
+    if (t.modo === 'real') {
+      return render(`
+        <section class="cartao centro">
+          <h1>📝 Teste entregue!</h1>
+          <p>Respondeste a ${t.total} perguntas. Quando o pai pedir a correção, vais ver aqui a nota e um comentário a cada resposta.</p>
+          <div class="linha-botoes">
+            <a class="btn prim" href="#/real/${t.id}">Ver as minhas respostas</a>
+            <a class="btn" href="#/t/${t.avaliacao}">Voltar ao teste</a>
+          </div>
+        </section>`);
+    }
     const mensagem = t.percent >= 90 ? '🌟 Excelente!' : t.percent >= 70 ? '😀 Muito bem!' : t.percent >= 50 ? '🙂 Estás quase lá!' : '💪 Vale a pena rever esta matéria.';
     const erradas = teste.perguntas.filter((q, i) => !teste.respostas[i].certa || teste.respostas[i].ajuda);
+    const respostaCerta = q => ehEscrita(q) ? q.escrita.modelo : q.opcoes[q.correta];
 
     render(`
       <section class="cartao centro">
         <h1>${mensagem}</h1>
         <div class="nota ${t.percent >= 70 ? 'bom' : t.percent >= 50 ? 'medio' : 'mau'}">${t.percent}%</div>
-        <p>${t.pontos} pontos em ${t.total} perguntas · Dificuldade: ${DIFICULDADES[t.dificuldade].nome}</p>
+        <p>${t.pontos} pontos em ${t.total} perguntas · ${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}</p>
         <div class="niveis">
           ${[1, 2, 3].filter(n => t.porNivel[n]).map(n => `<span class="chip">${NIVEL[n]} ${t.porNivel[n].certas}/${t.porNivel[n].total}</span>`).join('')}
         </div>
         ${erradas.length ? `
           <h2>Para rever</h2>
           <ul class="rever">
-            ${erradas.map(q => `<li><b>${esc(q.pergunta)}</b><br>✔ ${esc(q.opcoes[q.correta])}<br><span class="muted">📍 Página ${q.pagina}: ${esc(q.onde)}</span></li>`).join('')}
+            ${erradas.map(q => `<li><b>${esc(ehEscrita(q) ? q.escrita.pergunta || q.pergunta : q.pergunta)}</b><br>✔ ${esc(respostaCerta(q))}<br><span class="muted">📍 Página ${q.pagina}: ${esc(q.onde)}</span></li>`).join('')}
           </ul>` : '<p>Acertaste tudo sem ajuda! 🎉</p>'}
         <div class="linha-botoes">
           <a class="btn prim" href="#/testar/${t.avaliacao}/${t.pagina ?? 'global'}">🔁 Repetir</a>
@@ -423,6 +600,69 @@ const App = (() => {
           <a class="btn" href="#/t/${t.avaliacao}">Voltar ao teste</a>
         </div>
       </section>`);
+  }
+
+  // ---------- teste real: respostas e correção ----------
+  const testeReal = id => A.estado.testes.find(t => t.modo === 'real' && String(t.id) === String(id));
+  const perguntaDoBanco = (t, qid) => livros[t.livro]?.perguntas.find(q => q.id === qid);
+
+  function ecraTesteReal(t) {
+    const corrigido = t.estado === 'corrigido';
+    render(`
+      <section class="cartao centro">
+        <a href="#/painel" class="voltar">← Painel</a>
+        <h1>🎓 ${esc(t.avaliacaoNome)} · teste real</h1>
+        <p class="muted">${dataCurta(t.data)} · páginas ${t.paginas[0]} a ${t.paginas[1]}</p>
+        ${corrigido
+          ? `<div class="nota ${t.percent >= 70 ? 'bom' : t.percent >= 50 ? 'medio' : 'mau'}">${t.percent}%</div>
+             ${t.correcao?.comentarioGeral ? `<div class="feedback ajuda"><b>Comentário:</b> ${esc(t.correcao.comentarioGeral)}</div>` : ''}`
+          : '<div class="feedback ajuda">⏳ Ainda por corrigir.</div>'}
+        <ol class="respostas-real">
+          ${t.respostas.map(r => {
+            const q = perguntaDoBanco(t, r.id);
+            const nota = r.pontuacao == null ? '' : `<span class="chip ${r.pontuacao === 1 ? 'ok' : r.pontuacao > 0 ? 'aviso' : ''}">${Math.round(r.pontuacao * 100)}%</span>`;
+            return `
+              <li>
+                <b>${esc(r.pergunta)}</b> ${nota}
+                <div class="a-tua">${esc(r.texto) || '<i>sem resposta</i>'}</div>
+                ${corrigido ? `
+                  ${r.comentario ? `<p>💬 ${esc(r.comentario)}</p>` : ''}
+                  ${q?.escrita ? `<p class="muted">Resposta modelo: ${esc(q.escrita.modelo)}</p>` : ''}` : ''}
+              </li>`;
+          }).join('')}
+        </ol>
+      </section>`);
+  }
+
+  // Ficheiro que o pai entrega ao Claude para corrigir.
+  function descarregarParaCorrecao(t) {
+    const pedido = {
+      tipo: 'pedido-correcao', id: t.id, data: t.data, teste: t.avaliacaoNome, livro: t.livro, paginas: t.paginas,
+      instrucoes: 'Corrige cada resposta com pontuacao entre 0 e 1 e um comentário curto e encorajador para uma criança de 11 anos. Devolve um ficheiro com tipo "correcao", o mesmo id, comentarioGeral e respostas: [{ id, pontuacao, comentario }].',
+      respostas: t.respostas.map(r => {
+        const q = perguntaDoBanco(t, r.id);
+        return { id: r.id, pagina: r.pagina, nivel: r.nivel, tipo: r.modo, pergunta: r.pergunta, resposta: r.texto,
+          respostaModelo: q?.escrita?.modelo, pontosChave: q?.escrita?.pontos, explicacao: q?.explicacao };
+      }),
+    };
+    const blob = new Blob([JSON.stringify(pedido, null, 2)], { type: 'application/json' });
+    const el = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `pedido-correcao-${t.id}.json` });
+    el.click();
+    URL.revokeObjectURL(el.href);
+  }
+
+  async function carregarCorrecao(ficheiro) {
+    const c = JSON.parse(await ficheiro.text());
+    const t = testeReal(c.id);
+    if (c.tipo !== 'correcao' || !t) throw new Error('Este ficheiro não é a correção de um teste real desta conta.');
+    for (const rc of c.respostas) {
+      const r = t.respostas.find(x => x.id === rc.id);
+      if (r) Object.assign(r, { pontuacao: Math.max(0, Math.min(1, +rc.pontuacao || 0)), comentario: rc.comentario || '' });
+    }
+    t.respostas.forEach(r => { if (r.pontuacao == null) r.pontuacao = 0; r.certa = r.pontuacao === 1; });
+    Object.assign(t, calcularNota(t.respostas), { estado: 'corrigido', correcao: { data: new Date().toISOString(), comentarioGeral: c.comentarioGeral || '' } });
+    await A.atualizarTeste(t);
+    return t;
   }
 
   // ---------- gerir testes (pai) ----------
@@ -521,10 +761,12 @@ const App = (() => {
     const tempoSemana = dias.reduce((s, d) => s + (e.tempoPorDia[d] || 0), 0);
     const tempoTotal = Object.values(e.tempoPorDia).reduce((s, v) => s + v, 0);
     const maxDia = Math.max(60, ...dias.map(d => e.tempoPorDia[d] || 0));
-    const media = e.testes.length ? Math.round(e.testes.reduce((s, t) => s + t.percent, 0) / e.testes.length) : null;
+    const comNota = e.testes.filter(t => t.percent != null);
+    const media = comNota.length ? Math.round(comNota.reduce((s, t) => s + t.percent, 0) / comNota.length) : null;
+    const reais = e.testes.filter(t => t.modo === 'real').reverse();
 
     const porNivel = { 1: { c: 0, t: 0 }, 2: { c: 0, t: 0 }, 3: { c: 0, t: 0 } };
-    e.testes.forEach(t => t.respostas.forEach(r => { porNivel[r.nivel].t++; if (r.certa && !r.ajuda) porNivel[r.nivel].c++; }));
+    comNota.forEach(t => t.respostas.forEach(r => { porNivel[r.nivel].t++; if (r.certa && !r.ajuda) porNivel[r.nivel].c++; }));
 
     const todasPerguntas = Object.values(livros).flatMap(l => l.perguntas);
     const dificeis = Object.entries(e.historico).filter(([, h]) => h.erradas > 0)
@@ -573,6 +815,19 @@ const App = (() => {
           <thead><tr><th>Teste</th><th>Data</th><th>Páginas estudadas</th><th>Treinos feitos</th><th>Melhor global</th></tr></thead>
           <tbody>${testesEscola}</tbody></table>` : '<p class="muted">Ainda não há testes marcados.</p>'}
 
+        <h2>🎓 Testes reais</h2>
+        ${reais.length ? `<table>
+          <thead><tr><th>Data</th><th>Teste</th><th>Estado</th><th>Nota</th><th></th></tr></thead>
+          <tbody>${reais.map(t => `<tr><td>${dataCurta(t.data)}</td><td>${esc(t.avaliacaoNome)}</td>
+            <td>${t.estado === 'corrigido' ? '<span class="chip ok">Corrigido</span>' : '<span class="chip aviso">Por corrigir</span>'}</td>
+            <td>${t.percent != null ? `<b>${t.percent}%</b>` : '—'}</td>
+            <td class="acoes-tabela"><a class="btn" href="#/real/${t.id}">Ver</a>
+              ${t.estado !== 'corrigido' ? `<button class="btn" data-pedido="${t.id}">⬇️ Descarregar para correção</button>` : ''}</td></tr>`).join('')}</tbody>
+        </table>
+        <p class="muted">Para corrigir: descarrega o pedido, pede ao Claude "corrige o teste da Leonor" e depois carrega aqui o ficheiro da correção.</p>
+        <p><label class="btn">📥 Carregar correção<input type="file" id="correcao" accept=".json,application/json" hidden></label> <span id="msg-correcao" class="muted"></span></p>`
+        : '<p class="muted">Ainda não há testes reais. Faz-se no teste global, escolhendo "🎓 Teste real".</p>'}
+
         <h2>Acertos por nível</h2>
         <div class="niveis">
           ${[1, 2, 3].map(n => `<span class="chip">${NIVEL[n]} ${porNivel[n].t ? pct(porNivel[n].c, porNivel[n].t) + '%' : '—'} <small class="muted">(${porNivel[n].c}/${porNivel[n].t})</small></span>`).join('')}
@@ -587,7 +842,8 @@ const App = (() => {
           <tbody>${[...e.testes].reverse().slice(0, 15).map(t => `<tr><td>${dataCurta(t.data)}</td>
             <td>${esc(t.avaliacaoNome || '—')}</td>
             <td>${t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : `Página ${t.pagina}`}</td>
-            <td>${DIFICULDADES[t.dificuldade].nome}</td><td><b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small></td></tr>`).join('')}</tbody>
+            <td>${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}</td>
+            <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>` : '<span class="chip aviso">Por corrigir</span>'}</td></tr>`).join('')}</tbody>
         </table>` : '<p class="muted">Ainda não há treinos.</p>'}
 
         <h2>Perguntas que custam mais</h2>
@@ -596,6 +852,15 @@ const App = (() => {
         <p><button class="btn" id="exportar">⬇️ Guardar cópia do progresso</button></p>
       </section>`);
     document.getElementById('exportar').onclick = A.exportar;
+    $app.querySelectorAll('[data-pedido]').forEach(bt => bt.onclick = () => descarregarParaCorrecao(testeReal(bt.dataset.pedido)));
+    const $correcao = document.getElementById('correcao');
+    if ($correcao) $correcao.onchange = async () => {
+      const $msg = document.getElementById('msg-correcao');
+      try {
+        const t = await carregarCorrecao($correcao.files[0]);
+        location.hash = `#/real/${t.id}`;
+      } catch (erro) { $msg.textContent = 'Não foi possível carregar: ' + erro.message; }
+    };
   }
 
   // ---------- entrar ----------
@@ -639,15 +904,16 @@ const App = (() => {
     const bancos = await Promise.all(info.bancos.map(lerJson));
     const paginas = bancos.flatMap(b => b.paginas.map(p => ({ ...p, capitulo: b.capitulo })));
     const perguntas = bancos.flatMap(b => b.perguntas);
+    const licoes = bancos.flatMap(b => b.licoes || []);
     let url = f => '../' + info.base + f;
     if (db) {
-      const caminhos = paginas.flatMap(p => [p.imagem, p.video].filter(Boolean)).map(f => info.base + f);
+      const caminhos = paginas.map(p => info.base + p.imagem);
       const assinados = await db.storage.from(BUCKET).createSignedUrls(caminhos, 60 * 60 * 12);
       if (assinados.error) throw assinados.error;
       const urls = Object.fromEntries(assinados.data.map(s => [s.path, s.signedUrl]));
       url = f => urls[info.base + f];
     }
-    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, url };
+    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, url };
   }
 
   async function iniciar() {

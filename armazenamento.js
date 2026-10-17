@@ -22,6 +22,7 @@ const Armazenamento = (() => {
 
   function contarNoHistorico(teste) {
     for (const r of teste.respostas) {
+      if (r.pontuacao === null) continue; // teste real ainda por corrigir
       const h = estado.historico[r.id] ||= { certas: 0, erradas: 0 };
       if (r.certa && !r.ajuda) h.certas++; else h.erradas++;
     }
@@ -104,6 +105,16 @@ const Armazenamento = (() => {
       contarNoHistorico(teste);
       guardarLocal();
       db?.from('testes').insert({ registo: teste, data: teste.data }).then(({ error }) => avisar(error));
+    },
+
+    // Usado quando chega a correção de um teste real.
+    async atualizarTeste(teste) {
+      contarNoHistorico(teste);
+      guardarLocal();
+      if (db) {
+        const { error } = await db.from('testes').update({ registo: teste }).eq('registo->>id', String(teste.id));
+        if (error) throw error;
+      }
     },
 
     async guardarAvaliacao(a) {
