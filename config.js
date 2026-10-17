@@ -3,6 +3,6 @@
 // A chave "anon / publishable" é pública por natureza: a segurança vem das regras da base de dados.
 window.CONFIG = {
   SUPABASE_URL: 'https://dndaqyxwvwrflmvnhxhk.supabase.co',
-  SUPABASE_KEY: '',
+  SUPABASE_KEY: 'sb_publishable_lldc3n2lDmZmC18q8r_Aig_n_fiNgFx',
   BUCKET: 'conteudos',
 };
