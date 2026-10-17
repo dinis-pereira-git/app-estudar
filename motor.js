@@ -19,14 +19,23 @@ const Motor = (() => {
     return a;
   };
 
+  // Duas perguntas são "a mesma" se tiverem o mesmo enunciado ou a mesma resposta
+  // (algumas perguntas do friso da pág. 2 repetem-se nas lições seguintes).
+  const normalizar = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const chaves = q => [normalizar(q.pergunta), normalizar(q.escrita?.modelo || q.opcoes?.[q.correta])].filter(Boolean);
+  let usadas = new Set();
+
   function amostraPesada(lista, n, peso) {
-    const pool = lista.map(x => ({ x, w: peso(x) }));
+    const pool = lista.filter(q => !chaves(q).some(k => usadas.has(k))).map(x => ({ x, w: peso(x) }));
     const out = [];
     while (out.length < n && pool.length) {
       let r = Math.random() * pool.reduce((s, p) => s + p.w, 0);
       let i = 0;
       while (i < pool.length - 1 && r > pool[i].w) { r -= pool[i].w; i++; }
-      out.push(pool.splice(i, 1)[0].x);
+      const q = pool.splice(i, 1)[0].x;
+      if (chaves(q).some(k => usadas.has(k))) continue;
+      chaves(q).forEach(k => usadas.add(k));
+      out.push(q);
     }
     return out;
   }
@@ -46,6 +55,7 @@ const Motor = (() => {
 
   function gerar({ perguntas, historico, paginas, alvo, dificuldade }) {
     const mistura = MISTURAS[dificuldade];
+    usadas = new Set();
     const peso = q => { const h = historico[q.id]; return h ? 1 + 2 * h.erradas / (1 + h.certas) : 1.5; };
     let selecao;
 
