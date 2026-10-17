@@ -33,7 +33,15 @@ a { color: var(--prim); }
 .barra nav { display: flex; gap: 6px; }
 .barra nav a { text-decoration: none; color: var(--muted); padding: 6px 12px; border-radius: 8px; }
 .barra nav a.ativo, .barra nav a:hover { background: var(--fundo); color: var(--texto); }
-.relogio { margin-left: auto; font-weight: 600; background: var(--fundo); padding: 6px 12px; border-radius: 999px; }
+.relogio { margin-left: auto; font-weight: 600; background: var(--fundo); padding: 6px 12px; border-radius: 999px; white-space: nowrap; }
+.marca, .barra nav a { white-space: nowrap; }
+@media (max-width: 560px) {
+  .barra { gap: 8px; padding: 10px 12px; }
+  .marca { font-size: 17px; }
+  .barra nav { gap: 2px; }
+  .barra nav a { padding: 6px 8px; }
+  .relogio { padding: 5px 9px; font-size: 14px; }
+}
 
 main { max-width: 1150px; margin: 0 auto; padding: 24px 16px 60px; }
 .carregar { text-align: center; color: var(--muted); }
@@ -154,7 +162,7 @@ main { max-width: 1150px; margin: 0 auto; padding: 24px 16px 60px; }
 .ajuda-pagina { display: flex; gap: 14px; align-items: flex-start; background: var(--cartao); border-radius: 10px; padding: 10px; margin-top: 10px; }
 .pagina-marcada { position: relative; flex: 0 0 140px; cursor: zoom-in; line-height: 0; }
 .pagina-marcada img { width: 100%; border: 1px solid var(--linha); border-radius: 6px; }
-.marca { position: absolute; border: 3px solid #e53935; border-radius: 6px; background: rgba(255, 213, 79, .25); box-shadow: 0 0 0 2px #fff; animation: piscar 1.2s ease-in-out 3; }
+.marca-zona { position: absolute; border: 3px solid #e53935; border-radius: 6px; background: rgba(255, 213, 79, .25); box-shadow: 0 0 0 2px #fff; animation: piscar 1.2s ease-in-out 3; }
 @keyframes piscar { 50% { background: rgba(255, 213, 79, .6); } }
 .ajuda-texto { flex: 1; min-width: 0; }
 .recorte { position: relative; overflow: hidden; width: 100%; max-width: 100%; aspect-ratio: 2; margin: 8px 0 4px; border: 3px solid #e53935; border-radius: 8px; cursor: zoom-in; background: #fff; }

@@ -91,12 +91,12 @@ const App = (() => {
     $ampliar.innerHTML = `
       <div class="pagina-marcada grande">
         <img src="${src}" alt="Página ampliada">
-        ${z ? `<span class="marca" style="${estiloZona(z)}"></span>` : ''}
+        ${z ? `<span class="marca-zona" style="${estiloZona(z)}"></span>` : ''}
       </div>
       <button class="fechar" aria-label="Fechar">✕</button>`;
     $ampliar.hidden = false;
     $ampliar.scrollTop = 0;
-    if (z) $ampliar.querySelector('img').onload = () => $ampliar.querySelector('.marca').scrollIntoView({ block: 'center' });
+    if (z) $ampliar.querySelector('img').onload = () => $ampliar.querySelector('.marca-zona').scrollIntoView({ block: 'center' });
   }
   $ampliar.addEventListener('click', () => { $ampliar.hidden = true; });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') $ampliar.hidden = true; });
@@ -453,7 +453,7 @@ const App = (() => {
       <div class="ajuda-pagina">
         <div class="pagina-marcada" data-ampliar="${src}"${zona}>
           <img src="${src}" alt="Página ${q.pagina}">
-          ${z ? `<span class="marca" style="${estiloZona(z)}"></span>` : ''}
+          ${z ? `<span class="marca-zona" style="${estiloZona(z)}"></span>` : ''}
         </div>
         <div class="ajuda-texto">
           <b>📍 Procura na página ${q.pagina}:</b><br>${esc(q.onde)}
