@@ -169,7 +169,14 @@ main { max-width: 1150px; margin: 0 auto; padding: 24px 16px 60px; }
 .recorte img { position: absolute; max-width: none; }
 .pagina-marcada.grande { flex: none; width: min(1000px, 100%); align-self: flex-start; }
 .pagina-marcada.grande img { border: 0; }
-.dif.sugerida { border-color: var(--prim); box-shadow: 0 0 0 2px var(--prim); }
+.progresso-teste { border: 1px solid var(--linha); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+.progresso-teste p { margin: 8px 0 0; }
+.barra-rotulo { display: flex; gap: 8px; align-items: baseline; margin-top: 10px; }
+.barra-rotulo span { min-width: 110px; }
+.progresso-teste .progresso { margin: 4px 0 0; }
+.progresso.dominado > div { background: var(--n2, #f5a623); }
+.exato { display: flex; gap: 8px; align-items: center; justify-content: center; margin: 12px 0 0; cursor: pointer; }
+.dif.sugerida {border-color: var(--prim); box-shadow: 0 0 0 2px var(--prim); }
 .subir { text-align: center; margin: 14px 0; }
 .subir .btn { margin-top: 10px; }
 .minis {display: flex; gap: 4px; flex: none; }

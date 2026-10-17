@@ -58,7 +58,6 @@ const Motor = (() => {
 
   // No Fácil, mais vale um teste mais curto (mínimo 5) do que meter perguntas mais difíceis.
   const MINIMO = 5;
-  const chega = (selecao, dificuldade) => dificuldade === 'facil' && selecao.length >= MINIMO;
 
   // Completa até n, nível a nível pela ordem dada, preferindo as primeiras listas (a lição antes das anteriores).
   function completar(listas, n, selecao, ordem, peso) {
@@ -68,8 +67,11 @@ const Motor = (() => {
     }
   }
 
-  function gerar({ perguntas, historico, paginas, alvo, dificuldade }) {
-    const mistura = MISTURAS[dificuldade];
+  // exato: só perguntas do nível escolhido, mesmo que o teste fique mais curto.
+  function gerar({ perguntas, historico, paginas, alvo, dificuldade, exato }) {
+    const nivelExato = exato && ORDEM[dificuldade] && dificuldade !== 'misto' ? ORDEM[dificuldade][0] : null;
+    const mistura = nivelExato ? { 1: 0, 2: 0, 3: 0, [nivelExato]: 1 } : MISTURAS[dificuldade];
+    const chega = (selecao, dif) => nivelExato || (dif === 'facil' && selecao.length >= MINIMO);
     usadas = new Set();
     const peso = q => { const h = historico[q.id]; return h ? 1 + 2 * h.erradas / (1 + h.certas) : 1.5; };
     let selecao;

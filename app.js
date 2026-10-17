@@ -89,6 +89,31 @@ const App = (() => {
     return A.estado.testes.reduce((max, t) => t.livro === lid && t.tipo !== 'global' && nums.includes(t.pagina)
       && t.percent >= DOMINIO && NIVEL_DE[t.dificuldade] > max ? NIVEL_DE[t.dificuldade] : max, 0);
   }
+  // Progresso de um teste da escola: lições estudadas, níveis dominados e, ao ritmo atual,
+  // quando fica a matéria toda estudada (ritmo = lições acabadas por dia desde o primeiro dia de estudo).
+  function progressoTeste(a) {
+    const grupos = gruposLicoes(a.livro, paginasDaAvaliacao(a));
+    const total = grupos.length;
+    const estudadas = grupos.filter(g => licaoEstudada(a.livro, g.nums));
+    const niveis = grupos.reduce((s, g) => s + nivelDominado(a.livro, g.nums), 0);
+    const datas = grupos.flatMap(g => g.nums.map(n => A.infoPagina(a.livro, n).data)).filter(Boolean).sort();
+    const dia = iso => new Date(iso.slice(0, 10) + 'T12:00');
+    const hoje = dia(A.hoje());
+    const falta = total - estudadas.length;
+    const diasAteTeste = a.data ? Math.round((dia(a.data) - hoje) / 86400000) : null;
+    let ritmo = null, fim = null;
+    if (estudadas.length && datas.length) {
+      const dias = Math.max(1, Math.round((hoje - dia(datas[0])) / 86400000) + 1);
+      ritmo = estudadas.length / dias;
+      if (falta > 0) { fim = new Date(hoje); fim.setDate(fim.getDate() + Math.ceil(falta / ritmo)); }
+    }
+    return {
+      total, estudadas: estudadas.length, falta, ritmo, fim, diasAteTeste,
+      pctEstudado: pct(estudadas.length, total), pctDominado: pct(niveis, 3 * total),
+      // para acabar na véspera do teste
+      porDia: falta > 0 && diasAteTeste > 1 ? falta / (diasAteTeste - 1) : null,
+    };
+  }
   const difSugerida = (lid, nums) => DIF_DE[Math.min(3, nivelDominado(lid, nums) + 1)];
 
   function progressoAvaliacao(a) {
@@ -390,6 +415,7 @@ const App = (() => {
     real:   { nome: '🎓 Teste real', desc: 'Só respostas escritas, sem ajuda. O pai pede a correção no fim' },
   };
   let modoEscolhido = 'escola';
+  let exato = false; // 🎯 só perguntas do nível escolhido (no Médio e no Difícil; o Fácil já é só fácil)
 
   // n = uma página da lição a testar (ou null para o teste global).
   function ecraDificuldade(a, n) {
@@ -430,20 +456,22 @@ const App = (() => {
               ${k === sugerida ? '<span class="chip ok">👉 Sugerido</span>' : ''}
               <span class="estrelas">${d.estrelas}</span>
               <b>${d.nome}</b>
-              <span class="muted">${d.desc}</span>
+              <span class="muted">${k === 'misto' ? d.desc : exato && k !== 'facil' ? `Só perguntas ${NIVEL[NIVEL_DE[k]]}` : d.desc}</span>
             </button>`).join('')}
         </div>
+        <label class="exato"><input type="checkbox" id="exato" ${exato ? 'checked' : ''}> 🎯 Exato: só perguntas do nível escolhido (sem fáceis pelo meio)</label>
       </section>`);
 
     $app.querySelectorAll('[data-modo]').forEach(bt => bt.onclick = () => { modoEscolhido = bt.dataset.modo; ecraDificuldade(a, n); });
+    document.getElementById('exato').onchange = ev => { exato = ev.target.checked; ecraDificuldade(a, n); };
     $app.querySelectorAll('[data-dif]').forEach(bt => bt.onclick = () => {
       if (alvo != null) alvo.forEach(p => A.marcarEstudada(a.livro, p));
       const dificuldade = bt.dataset.dif;
       const modo = modoEscolhido;
       const todas = livros[a.livro].perguntas;
       teste = {
-        avaliacao: a, livro: a.livro, alvo, paginas, dificuldade, modo, inicio: new Date().toISOString(),
-        perguntas: Motor.gerar({ perguntas: modo === 'rapido' ? todas : todas.filter(q => q.escrita), historico: A.estado.historico, paginas, alvo, dificuldade }),
+        avaliacao: a, livro: a.livro, alvo, paginas, dificuldade, exato: exato && dificuldade !== 'misto' && dificuldade !== 'facil', modo, inicio: new Date().toISOString(),
+        perguntas: Motor.gerar({ perguntas: modo === 'rapido' ? todas : todas.filter(q => q.escrita), historico: A.estado.historico, paginas, alvo, dificuldade, exato }),
         indice: 0, respostas: [], ajuda: false, respondida: null,
       };
       location.hash = '#/teste';
@@ -696,7 +724,7 @@ const App = (() => {
       avaliacao: a.id, avaliacaoNome: nomeAvaliacao(a), modo: teste.modo, estado: real ? 'por corrigir' : 'feito',
       tipo: teste.alvo == null ? 'global' : 'licao', pagina: teste.alvo?.[0] ?? null, licao: teste.alvo,
       paginas: [teste.paginas[0], teste.paginas[teste.paginas.length - 1]],
-      dificuldade: teste.dificuldade, total: teste.respostas.length, ...nota, respostas: teste.respostas,
+      dificuldade: teste.dificuldade, exato: teste.exato, total: teste.respostas.length, ...nota, respostas: teste.respostas,
     };
     A.registarTeste(teste.registo);
     location.hash = '#/resultado';
@@ -724,7 +752,7 @@ const App = (() => {
       <section class="cartao centro">
         <h1>${mensagem}</h1>
         <div class="nota ${t.percent >= 70 ? 'bom' : t.percent >= 50 ? 'medio' : 'mau'}">${t.percent}%</div>
-        <p>${t.pontos} pontos em ${t.total} perguntas · ${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}</p>
+        <p>${t.pontos} pontos em ${t.total} perguntas · ${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯 Exato' : ''}</p>
         <div class="niveis">
           ${[1, 2, 3].filter(n => t.porNivel[n]).map(n => `<span class="chip">${NIVEL[n]} ${t.porNivel[n].certas}/${t.porNivel[n].total}</span>`).join('')}
         </div>
@@ -919,12 +947,33 @@ const App = (() => {
       .sort((a, b) => (b[1].erradas - b[1].certas) - (a[1].erradas - a[1].certas)).slice(0, 5)
       .map(([qid, h]) => ({ q: todasPerguntas.find(q => q.id === qid), h })).filter(x => x.q);
 
-    const testesEscola = A.estado.avaliacoes.map(a => {
-      const { total, estudadas } = progressoAvaliacao(a);
+    const dataPt = d => d.toLocaleDateString('pt-PT', { weekday: 'short', day: 'numeric', month: 'long' });
+    const porSemana = x => x >= 1 ? `${Math.ceil(x)} lição(ões) por dia` : `${Math.ceil(x * 7)} lição(ões) por semana`;
+    const testesEscola = [...A.estado.avaliacoes].sort((x, y) => String(x.data || '9999').localeCompare(String(y.data || '9999'))).map(a => {
+      const p = progressoTeste(a);
       const feitos = e.testes.filter(t => String(t.avaliacao) === String(a.id));
       const nota = melhorNota(t => String(t.avaliacao) === String(a.id) && t.tipo === 'global');
-      return `<tr><td><b>${esc(disciplinas[a.disciplina]?.nome || a.disciplina)}</b> · ${esc(nomeAvaliacao(a))}</td><td>${a.data ? new Date(a.data + 'T12:00').toLocaleDateString('pt-PT') : '—'}</td>
-        <td>${estudadas}/${total}</td><td>${feitos.length}</td><td>${nota != null ? nota + '%' : '—'}</td></tr>`;
+      let previsao;
+      if (!p.falta) previsao = '✅ A matéria toda já está estudada. Agora é treinar os níveis e fazer o teste global.';
+      else if (p.diasAteTeste != null && p.diasAteTeste < 0) previsao = 'Este teste já foi.';
+      else if (!p.ritmo) previsao = `Ainda sem ritmo para estimar.${p.porDia ? ` Para acabar na véspera do teste: ${porSemana(p.porDia)}.` : ''}`;
+      else {
+        const aTempo = p.diasAteTeste == null || p.fim < new Date(a.data + 'T12:00');
+        previsao = `${aTempo ? '🟢' : '🔴'} Ao ritmo atual fica tudo estudado <b>${dataPt(p.fim)}</b>`
+          + (p.diasAteTeste != null ? (aTempo ? ', antes do teste.' : ', depois do teste!') : '.')
+          + (p.porDia ? ` Para acabar na véspera do teste: ${porSemana(p.porDia)}.` : '');
+      }
+      return `
+        <div class="progresso-teste">
+          <div class="seccao-topo"><b>${esc(disciplinas[a.disciplina]?.nome || a.disciplina)} · ${esc(nomeAvaliacao(a))}</b>
+            <span class="muted">${a.data ? quandoE(a.data) : 'Sem data'}</span></div>
+          <div class="barra-rotulo"><span>📖 Estudado</span><b>${p.pctEstudado}%</b> <small class="muted">(${p.estudadas} de ${p.total} lições)</small></div>
+          <div class="progresso"><div style="width:${p.pctEstudado}%"></div></div>
+          <div class="barra-rotulo"><span>🏅 Dominado</span><b>${p.pctDominado}%</b> <small class="muted">(níveis ★ a ★★★ com ${DOMINIO}% ou mais)</small></div>
+          <div class="progresso dominado"><div style="width:${p.pctDominado}%"></div></div>
+          <p>${previsao}</p>
+          <p class="muted">${feitos.length} treino(s) feitos · melhor teste global: ${nota != null ? nota + '%' : '—'}</p>
+        </div>`;
     }).join('');
 
     const tabelasLicoes = Object.values(livros).map(l => `
@@ -960,9 +1009,7 @@ const App = (() => {
         </div>
 
         <h2>Testes da escola</h2>
-        ${testesEscola ? `<table>
-          <thead><tr><th>Teste</th><th>Data</th><th>Páginas estudadas</th><th>Treinos feitos</th><th>Melhor global</th></tr></thead>
-          <tbody>${testesEscola}</tbody></table>` : '<p class="muted">Ainda não há testes marcados.</p>'}
+        ${testesEscola || '<p class="muted">Ainda não há testes marcados.</p>'}
 
         <h2>🎓 Testes reais</h2>
         ${reais.length ? `<table>
@@ -992,7 +1039,7 @@ const App = (() => {
           <tbody>${[...e.testes].reverse().slice(0, 15).map(t => `<tr><td>${dataCurta(t.data)}</td>
             <td>${esc(t.avaliacaoNome || '—')}</td>
             <td>${t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`}</td>
-            <td>${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}</td>
+            <td>${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯' : ''}</td>
             <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>` : '<span class="chip aviso">Por corrigir</span>'}</td></tr>`).join('')}</tbody>
         </table>` : '<p class="muted">Ainda não há treinos.</p>'}
 
