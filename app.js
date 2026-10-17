@@ -123,8 +123,12 @@ const App = (() => {
   function progressoNiveis(lid, nums) {
     const qs = livros[lid].perguntas.filter(q => nums.includes(q.pagina));
     const certas = { escola: new Set(), escolha: new Set() }, ajuda = { escola: new Set(), escolha: new Set() };
-    A.estado.testes.forEach(t => t.livro === lid && t.modo !== 'real' && t.respostas.forEach(r => {
+    // Num teste ainda por rever, as respostas que ela própria se deu como certas só contam depois da revisão.
+    A.estado.testes.forEach(t => t.livro === lid && !porCorrigir(t) && t.respostas.forEach(r => {
       if (r.certa && r.auditoria !== 'mal') (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
+    }));
+    A.estado.testes.forEach(t => t.livro === lid && t.modo === 'escola' && porCorrigir(t) && t.respostas.forEach(r => {
+      if (r.certa && !autoavaliadas({ respostas: [r] }).length) (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
     }));
     const res = {};
     for (const e of Object.keys(ESTILOS)) for (const n of [1, 2, 3]) {
@@ -748,10 +752,17 @@ const App = (() => {
 
     const a = teste.avaliacao;
     const real = teste.modo === 'real';
+    // "Como no teste da escola": a nota que sai é a da autoavaliação; a nota final fica pendente
+    // até o pai pedir a revisão ao Claude (como no teste real).
+    const escola = teste.modo === 'escola';
     const nota = real ? { pontos: null, porNivel: {}, percent: null } : calcularNota(teste.respostas);
+    if (escola) {
+      teste.respostas.forEach(r => { r.pontuacaoAuto = r.pontuacao; });
+      Object.assign(nota, { autoPercent: nota.percent, autoPontos: nota.pontos, percent: null, pontos: null });
+    }
     teste.registo = {
       id: Date.now(), data: new Date().toISOString(), disciplina: a.disciplina, livro: a.livro,
-      avaliacao: a.id, avaliacaoNome: nomeAvaliacao(a), modo: teste.modo, estado: real ? 'por corrigir' : 'feito',
+      avaliacao: a.id, avaliacaoNome: nomeAvaliacao(a), modo: teste.modo, estado: real ? 'por corrigir' : escola ? 'por rever' : 'feito',
       tipo: teste.alvo == null ? 'global' : 'licao', pagina: teste.alvo?.[0] ?? null, licao: teste.alvo,
       paginas: [teste.paginas[0], teste.paginas[teste.paginas.length - 1]],
       dificuldade: teste.dificuldade, exato: teste.exato, total: teste.respostas.length, ...nota, respostas: teste.respostas,
@@ -774,25 +785,30 @@ const App = (() => {
           </div>
         </section>`);
     }
-    const mensagem = t.percent >= 90 ? '🌟 Excelente!' : t.percent >= 70 ? '😀 Muito bem!' : t.percent >= 50 ? '🙂 Estás quase lá!' : '💪 Vale a pena rever esta matéria.';
+    // No modo escola a nota mostrada é a da autoavaliação; a final fica pendente da revisão.
+    const pendente = t.estado === 'por rever';
+    const p = t.percent ?? t.autoPercent;
+    const mensagem = p >= 90 ? '🌟 Excelente!' : p >= 70 ? '😀 Muito bem!' : p >= 50 ? '🙂 Estás quase lá!' : '💪 Vale a pena rever esta matéria.';
     const erradas = teste.perguntas.filter((q, i) => !teste.respostas[i].certa || teste.respostas[i].ajuda);
     const respostaCerta = q => ehEscrita(q) ? q.escrita.modelo : q.opcoes[q.correta];
 
     render(`
       <section class="cartao centro">
         <h1>${mensagem}</h1>
-        <div class="nota ${t.percent >= 70 ? 'bom' : t.percent >= 50 ? 'medio' : 'mau'}">${t.percent}%</div>
-        <p>${t.pontos} pontos em ${t.total} perguntas · ${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯 Exato' : ''}</p>
+        ${pendente ? '<p class="muted">✋ A tua autoavaliação</p>' : ''}
+        <div class="nota ${p >= 70 ? 'bom' : p >= 50 ? 'medio' : 'mau'}">${p}%</div>
+        <p>${t.pontos ?? t.autoPontos} pontos em ${t.total} perguntas · ${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯 Exato' : ''}</p>
+        ${pendente ? '<p class="feedback ajuda">⏳ <b>Nota final pendente.</b> Esta é a nota que deste a ti própria. O pai vai pedir a revisão das tuas respostas e depois aparece a nota final.</p>' : ''}
         ${comAjuda(t) ? `<p class="feedback ajuda">💡 Usaste ajuda em ${comAjuda(t)} de ${t.total} perguntas. Essas valem metade e ainda não contam como sabidas — tenta outra vez sem ajuda.</p>` : ''}
         <div class="niveis">
           ${[1, 2, 3].filter(n => t.porNivel[n]).map(n => `<span class="chip">${NIVEL[n]} ${t.porNivel[n].certas}/${t.porNivel[n].total}</span>`).join('')}
         </div>
-        ${t.licao && t.percent >= DOMINIO && t.dificuldade !== 'dificil' && t.dificuldade !== 'misto' ? `
+        ${t.licao && p >= DOMINIO && t.dificuldade !== 'dificil' && t.dificuldade !== 'misto' ? `
           <div class="feedback bom subir">
             <b>🚀 Já dominas o nível ${DIFICULDADES[t.dificuldade].nome} desta lição!</b>
             Experimenta agora o ${DIFICULDADES[DIF_DE[NIVEL_DE[t.dificuldade] + 1]].nome}.
             <a class="btn prim" href="#/testar/${t.avaliacao}/${t.pagina}">Experimentar o ${DIFICULDADES[DIF_DE[NIVEL_DE[t.dificuldade] + 1]].nome} ${DIFICULDADES[DIF_DE[NIVEL_DE[t.dificuldade] + 1]].estrelas}</a>
-          </div>` : t.licao && t.percent >= DOMINIO && t.dificuldade === 'dificil' ? `
+          </div>` : t.licao && p >= DOMINIO && t.dificuldade === 'dificil' ? `
           <div class="feedback bom subir"><b>🏆 Dominas esta lição até ao nível mais difícil!</b> Passa à lição seguinte ou faz o teste global.</div>` : ''}
         ${erradas.length ? `
           <h2>Para rever</h2>
@@ -807,29 +823,39 @@ const App = (() => {
       </section>`);
   }
 
-  // ---------- teste real: respostas e correção ----------
-  const testeReal = id => A.estado.testes.find(t => t.modo === 'real' && String(t.id) === String(id));
+  // ---------- correção pelo Claude: teste real e testes "como na escola" ----------
+  // O teste real não tem nota nenhuma até ser corrigido; o "como na escola" tem a nota da autoavaliação
+  // e fica com a nota final pendente ("por rever") até chegar a correção.
+  const corrigivel = t => t.modo === 'real' || t.modo === 'escola' && t.autoPercent != null;
+  const porCorrigir = t => corrigivel(t) && t.estado !== 'corrigido';
+  const testeReal = id => A.estado.testes.find(t => corrigivel(t) && String(t.id) === String(id));
   const perguntaDoBanco = (t, qid) => livros[t.livro]?.perguntas.find(q => q.id === qid);
+  const nomeTreino = t => t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`;
 
   function ecraTesteReal(t) {
     const corrigido = t.estado === 'corrigido';
+    const real = t.modo === 'real';
+    const chipNota = v => v == null ? '' : `<span class="chip ${v === 1 ? 'ok' : v > 0 ? 'aviso' : ''}">${Math.round(v * 100)}%</span>`;
     render(`
       <section class="cartao centro">
         <a href="#/painel" class="voltar">← Painel</a>
-        <h1>🎓 ${esc(t.avaliacaoNome)} · teste real</h1>
-        <p class="muted">${dataCurta(t.data)} · páginas ${t.paginas[0]} a ${t.paginas[1]}</p>
+        <h1>${real ? '🎓' : '✍️'} ${esc(t.avaliacaoNome)} · ${real ? 'teste real' : 'como no teste da escola'}</h1>
+        <p class="muted">${dataCurta(t.data)} · ${nomeTreino(t)}</p>
+        ${t.autoPercent != null ? `<p>✋ Autoavaliação: <b>${t.autoPercent}%</b></p>` : ''}
         ${corrigido
-          ? `<div class="nota ${t.percent >= 70 ? 'bom' : t.percent >= 50 ? 'medio' : 'mau'}">${t.percent}%</div>
+          ? `<p class="muted">Nota final</p><div class="nota ${t.percent >= 70 ? 'bom' : t.percent >= 50 ? 'medio' : 'mau'}">${t.percent}%</div>
              ${t.correcao?.comentarioGeral ? `<div class="feedback ajuda"><b>Comentário:</b> ${esc(t.correcao.comentarioGeral)}</div>` : ''}`
-          : '<div class="feedback ajuda">⏳ Ainda por corrigir.</div>'}
+          : `<div class="feedback ajuda">⏳ ${real ? 'Ainda por corrigir.' : 'Nota final pendente: falta a revisão.'}</div>`}
         <ol class="respostas-real">
           ${t.respostas.map(r => {
             const q = perguntaDoBanco(t, r.id);
-            const nota = r.pontuacao == null ? '' : `<span class="chip ${r.pontuacao === 1 ? 'ok' : r.pontuacao > 0 ? 'aviso' : ''}">${Math.round(r.pontuacao * 100)}%</span>`;
             return `
               <li>
-                <b>${esc(r.pergunta)}</b> ${nota}
-                <div class="a-tua">${esc(r.texto) || '<i>sem resposta</i>'}</div>
+                <b>${esc(r.pergunta || q?.pergunta || '')}</b>
+                ${r.pontuacaoAuto != null ? `<small class="muted">✋ ${Math.round(r.pontuacaoAuto * 100)}%</small>` : ''}
+                ${corrigido || real ? chipNota(r.pontuacao) : ''}
+                ${r.ajuda ? '<span class="chip aviso">💡 com ajuda</span>' : ''}
+                <div class="a-tua">${esc(r.texto ?? (q?.opcoes && r.resposta != null ? q.opcoes[r.resposta] : '')) || '<i>sem resposta</i>'}</div>
                 ${corrigido ? `
                   ${r.comentario ? `<p>💬 ${esc(r.comentario)}</p>` : ''}
                   ${q?.escrita ? `<p class="muted">Resposta modelo: ${esc(q.escrita.modelo)}</p>` : ''}` : ''}
@@ -839,35 +865,61 @@ const App = (() => {
       </section>`);
   }
 
-  // Ficheiro que o pai entrega ao Claude para corrigir.
-  function descarregarParaCorrecao(t) {
-    const pedido = {
-      tipo: 'pedido-correcao', id: t.id, data: t.data, teste: t.avaliacaoNome, livro: t.livro, paginas: t.paginas,
-      instrucoes: 'Corrige cada resposta com pontuacao entre 0 e 1 e um comentário curto e encorajador para uma criança de 11 anos. Devolve um ficheiro com tipo "correcao", o mesmo id, comentarioGeral e respostas: [{ id, pontuacao, comentario }].',
+  // Ficheiro que o pai entrega ao Claude para corrigir (um teste ou vários de uma vez).
+  function pedidoDe(t) {
+    return {
+      id: t.id, data: t.data, teste: t.avaliacaoNome, modo: t.modo, treino: nomeTreino(t), livro: t.livro, paginas: t.paginas,
+      autoavaliacao: t.autoPercent ?? null,
       respostas: t.respostas.map(r => {
         const q = perguntaDoBanco(t, r.id);
-        return { id: r.id, pagina: r.pagina, nivel: r.nivel, tipo: r.modo, pergunta: r.pergunta, resposta: r.texto,
+        return { id: r.id, pagina: r.pagina, nivel: r.nivel, tipo: r.modo, pergunta: r.pergunta || q?.pergunta, resposta: r.texto,
+          comAjuda: !!r.ajuda, autoavaliacao: r.pontuacaoAuto ?? null, pontosMarcados: r.pontosMarcados,
           respostaModelo: q?.escrita?.modelo, pontosChave: q?.escrita?.pontos, explicacao: q?.explicacao };
       }),
     };
+  }
+  function descarregarParaCorrecao(testes) {
+    const pedido = {
+      tipo: 'pedido-correcao', gerado: new Date().toISOString(),
+      instrucoes: 'Corrige cada resposta com pontuacao entre 0 e 1 e um comentário curto e encorajador para uma criança de 11 anos. Nos testes "escola" compara com a autoavaliação dela. Devolve um ficheiro com tipo "correcao" e testes: [{ id, comentarioGeral, respostas: [{ id, pontuacao, comentario }] }].',
+      testes: testes.map(pedidoDe),
+    };
     const blob = new Blob([JSON.stringify(pedido, null, 2)], { type: 'application/json' });
-    const el = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `pedido-correcao-${t.id}.json` });
+    const nome = testes.length === 1 ? `pedido-correcao-${testes[0].id}.json` : `pedido-correcao-${A.hoje()}-${testes.length}-testes.json`;
+    const el = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: nome });
     el.click();
     URL.revokeObjectURL(el.href);
   }
 
+  // Aceita o formato antigo (um teste: { tipo, id, respostas }) e o novo ({ tipo, testes: [...] }).
   async function carregarCorrecao(ficheiro) {
     const c = JSON.parse(await ficheiro.text());
-    const t = testeReal(c.id);
-    if (c.tipo !== 'correcao' || !t) throw new Error('Este ficheiro não é a correção de um teste real desta conta.');
-    for (const rc of c.respostas) {
-      const r = t.respostas.find(x => x.id === rc.id);
-      if (r) Object.assign(r, { pontuacao: Math.max(0, Math.min(1, +rc.pontuacao || 0)), comentario: rc.comentario || '' });
+    if (c.tipo !== 'correcao') throw new Error('Este ficheiro não é uma correção.');
+    const lista = c.testes || [c];
+    const feitos = [];
+    for (const ct of lista) {
+      const t = testeReal(ct.id);
+      if (!t) continue;
+      for (const rc of ct.respostas || []) {
+        const r = t.respostas.find(x => x.id === rc.id);
+        if (r) Object.assign(r, { pontuacao: Math.max(0, Math.min(1, +rc.pontuacao || 0)), comentario: rc.comentario || '' });
+      }
+      t.respostas.forEach(r => {
+        if (r.pontuacao == null) r.pontuacao = 0;
+        r.certa = r.pontuacao === 1;
+        // A correção serve também de auditoria das autoavaliações (diferença de mais de 25 pontos = mal avaliada).
+        if (r.pontuacaoAuto != null && autoavaliadas({ respostas: [r] }).length && !r.auditoria) {
+          r.auditoria = Math.abs(r.pontuacaoAuto - r.pontuacao) <= 0.25 ? 'ok' : 'mal';
+          r.auditadoPor = 'Claude';
+        }
+      });
+      Object.assign(t, calcularNota(t.respostas), { estado: 'corrigido', correcao: { data: new Date().toISOString(), comentarioGeral: ct.comentarioGeral || '' } });
+      // O teste real ainda não estava no histórico de acertos (não tinha notas); o "escola" já estava.
+      if (t.modo === 'real') await A.atualizarTeste(t); else await A.guardarRegisto(t);
+      feitos.push(t);
     }
-    t.respostas.forEach(r => { if (r.pontuacao == null) r.pontuacao = 0; r.certa = r.pontuacao === 1; });
-    Object.assign(t, calcularNota(t.respostas), { estado: 'corrigido', correcao: { data: new Date().toISOString(), comentarioGeral: c.comentarioGeral || '' } });
-    await A.atualizarTeste(t);
-    return t;
+    if (!feitos.length) throw new Error('Nenhum dos testes deste ficheiro foi encontrado nesta conta.');
+    return feitos;
   }
 
   // ---------- gerir testes (pai) ----------
@@ -1033,7 +1085,8 @@ const App = (() => {
     const maxDia = Math.max(60, ...dias.map(d => e.tempoPorDia[d] || 0));
     const comNota = e.testes.filter(t => t.percent != null);
     const media = comNota.length ? Math.round(comNota.reduce((s, t) => s + t.percent, 0) / comNota.length) : null;
-    const reais = e.testes.filter(t => t.modo === 'real').reverse();
+    const reais = e.testes.filter(corrigivel).reverse();
+    const pendentes = reais.filter(porCorrigir);
 
     const porNivel = { 1: { c: 0, t: 0 }, 2: { c: 0, t: 0 }, 3: { c: 0, t: 0 } };
     comNota.forEach(t => t.respostas.forEach(r => { porNivel[r.nivel].t++; if (r.certa && !r.ajuda) porNivel[r.nivel].c++; }));
@@ -1131,18 +1184,23 @@ const App = (() => {
         <h2>Testes da escola</h2>
         ${testesEscola || '<p class="muted">Ainda não há testes marcados.</p>'}
 
-        <h2>🎓 Testes reais</h2>
-        ${reais.length ? `<table>
-          <thead><tr><th>Data</th><th>Teste</th><th>Estado</th><th>Nota</th><th></th></tr></thead>
+        <h2>📝 Correções (notas finais)</h2>
+        ${reais.length ? `
+          <p>${pendentes.length ? `<b>${pendentes.length} teste(s) à espera de revisão.</b> <button class="btn prim" id="pedido-todos">⬇️ Descarregar todos para correção</button>` : '✅ Não há testes por corrigir.'}</p>
+          <div class="tabela-larga"><table>
+          <thead><tr><th>Data</th><th>Teste</th><th>Treino</th><th>Estado</th><th>✋ Autoavaliação</th><th>Nota final</th><th></th></tr></thead>
           <tbody>${reais.map(t => `<tr><td>${dataCurta(t.data)}</td><td>${esc(t.avaliacaoNome)}</td>
-            <td>${t.estado === 'corrigido' ? '<span class="chip ok">Corrigido</span>' : '<span class="chip aviso">Por corrigir</span>'}</td>
-            <td>${t.percent != null ? `<b>${t.percent}%</b>` : '—'}</td>
+            <td>${t.modo === 'real' ? '🎓 Teste real' : '✍️ Escola'} · ${nomeTreino(t)}</td>
+            <td>${t.estado === 'corrigido' ? '<span class="chip ok">Corrigido</span>' : `<span class="chip aviso">${t.modo === 'real' ? 'Por corrigir' : 'Por rever'}</span>`}</td>
+            <td>${t.autoPercent != null ? `${t.autoPercent}%` : '—'}</td>
+            <td>${t.percent != null ? `<b>${t.percent}%</b>` : '⏳'}</td>
             <td class="acoes-tabela"><a class="btn" href="#/real/${t.id}">Ver</a>
-              ${t.estado !== 'corrigido' ? `<button class="btn" data-pedido="${t.id}">⬇️ Descarregar para correção</button>` : ''}</td></tr>`).join('')}</tbody>
-        </table>
-        <p class="muted">Para corrigir: descarrega o pedido, pede ao Claude "corrige o teste da Leonor" e depois carrega aqui o ficheiro da correção.</p>
-        <p><label class="btn">📥 Carregar correção<input type="file" id="correcao" accept=".json,application/json" hidden></label> <span id="msg-correcao" class="muted"></span></p>`
-        : '<p class="muted">Ainda não há testes reais. Faz-se no teste global, escolhendo "🎓 Teste real".</p>'}
+              ${t.estado !== 'corrigido' ? `<button class="btn" data-pedido="${t.id}">⬇️ Só este</button>` : ''}</td></tr>`).join('')}</tbody>
+          </table></div>
+          <p class="muted">Para dar as notas finais: descarrega o pedido, pede ao Claude "corrige os testes da Leonor" e depois carrega aqui o ficheiro da correção.
+            A correção também confirma (ou não) as autoavaliações dela.</p>
+          <p><label class="btn">📥 Carregar correção<input type="file" id="correcao" accept=".json,application/json" hidden></label> <span id="msg-correcao" class="muted"></span></p>`
+        : '<p class="muted">Ainda não há testes para corrigir. Os testes "✍️ Como no teste da escola" e "🎓 Teste real" aparecem aqui.</p>'}
 
         <h2>🔍 Autoavaliações</h2>
         ${(() => {
@@ -1173,7 +1231,8 @@ const App = (() => {
             <td>${esc(t.avaliacaoNome || '—')}</td>
             <td>${t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`}</td>
             <td>${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯' : ''}</td>
-            <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>` : '<span class="chip aviso">Por corrigir</span>'}</td>
+            <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>${t.autoPercent != null ? ` <small class="muted">✋ ${t.autoPercent}%</small>` : ''}`
+              : t.autoPercent != null ? `<span class="chip aviso">✋ ${t.autoPercent}% · ⏳ final</span>` : '<span class="chip aviso">Por corrigir</span>'}</td>
             <td>${comAjuda(t) ? `<span class="chip aviso">${comAjuda(t)} de ${t.total}</span>` : '—'}</td>
             <td>${autoavaliadas(t).length ? `${autoavaliadas(t).length}${autoavaliadas(t).some(r => !r.auditoria) ? ' <small class="muted">(por rever)</small>' : ''}` : '—'}</td></tr>`).join('')}</tbody>
         </table>` : '<p class="muted">Ainda não há treinos.</p>'}
@@ -1195,13 +1254,16 @@ const App = (() => {
       catch (erro) { document.getElementById('msg-recomecar').textContent = 'Não foi possível apagar: ' + erro.message; }
     };
     document.getElementById('exportar').onclick = A.exportar;
-    $app.querySelectorAll('[data-pedido]').forEach(bt => bt.onclick = () => descarregarParaCorrecao(testeReal(bt.dataset.pedido)));
+    $app.querySelectorAll('[data-pedido]').forEach(bt => bt.onclick = () => descarregarParaCorrecao([testeReal(bt.dataset.pedido)]));
+    const $todos = document.getElementById('pedido-todos');
+    if ($todos) $todos.onclick = () => descarregarParaCorrecao(pendentes);
     const $correcao = document.getElementById('correcao');
     if ($correcao) $correcao.onchange = async () => {
       const $msg = document.getElementById('msg-correcao');
       try {
-        const t = await carregarCorrecao($correcao.files[0]);
-        location.hash = `#/real/${t.id}`;
+        const feitos = await carregarCorrecao($correcao.files[0]);
+        if (feitos.length === 1) location.hash = `#/real/${feitos[0].id}`;
+        else { ecraPainel(); document.getElementById('msg-correcao').textContent = `✅ ${feitos.length} testes corrigidos.`; }
       } catch (erro) { $msg.textContent = 'Não foi possível carregar: ' + erro.message; }
     };
   }
