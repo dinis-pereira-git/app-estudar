@@ -80,7 +80,7 @@ const App = (() => {
   // Respostas que deixam de contar no progresso porque as perguntas mudaram e o pai pediu para repetir.
   // 17/10/2026: opções de escolha múltipla reescritas (a certa era quase sempre a mais longa) → as difíceis repetem-se.
   // Não se apaga nada; só se ignoram as respostas anteriores à data.
-  const REPOSICOES = [{ estilo: 'escolha', nivel: 3, ate: '2026-10-17T23:59:00Z' }];
+  const REPOSICOES = [{ estilo: 'escolha', nivel: 3, ate: '2026-10-17T19:58:00Z' }];
   const anulada = (t, r) => REPOSICOES.some(x => t.data < x.ate && estiloDe(r) === x.estilo && r.nivel === x.nivel);
   const testeAnulado = t => REPOSICOES.some(x => t.data < x.ate && x.estilo === 'escolha' && t.modo === 'rapido' && NIVEL_DE[t.dificuldade] === x.nivel);
 
