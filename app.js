@@ -70,13 +70,30 @@ const App = (() => {
     return { total: pags.length, estudadas };
   }
 
-  function ampliar(src) {
-    $ampliar.innerHTML = `<img src="${src}" alt="Página ampliada"><button class="fechar" aria-label="Fechar">✕</button>`;
+  function ampliar(src, zona) {
+    const z = zona ? zona.split(',').map(Number) : null;
+    $ampliar.innerHTML = `
+      <div class="pagina-marcada grande">
+        <img src="${src}" alt="Página ampliada">
+        ${z ? `<span class="marca" style="${estiloZona(z)}"></span>` : ''}
+      </div>
+      <button class="fechar" aria-label="Fechar">✕</button>`;
     $ampliar.hidden = false;
+    $ampliar.scrollTop = 0;
+    if (z) $ampliar.querySelector('img').onload = () => $ampliar.querySelector('.marca').scrollIntoView({ block: 'center' });
   }
   $ampliar.addEventListener('click', () => { $ampliar.hidden = true; });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') $ampliar.hidden = true; });
-  $app.addEventListener('click', e => { const z = e.target.closest('[data-ampliar]'); if (z) ampliar(z.dataset.ampliar); });
+  $app.addEventListener('click', e => { const z = e.target.closest('[data-ampliar]'); if (z) ampliar(z.dataset.ampliar, z.dataset.zona); });
+  // O recorte só sabe a sua proporção quando a imagem da página carrega.
+  $app.addEventListener('load', e => {
+    const caixa = e.target.closest?.('.recorte');
+    if (!caixa) return;
+    const [, , w, h] = caixa.dataset.zona.split(',').map(Number);
+    const proporcao = (w * e.target.naturalWidth) / (h * e.target.naturalHeight);
+    caixa.style.aspectRatio = proporcao;
+    caixa.style.width = Math.min(560, 340 * proporcao) + 'px'; // zonas altas não ficam enormes
+  }, true);
 
   // ---------- tempo de estudo ativo ----------
   // Só conta quando a janela está visível e houve interação no último minuto.
@@ -318,6 +335,7 @@ const App = (() => {
 
     render(`
       <section class="estudar">
+        ${testeAMeio()}
         <div class="estudar-topo">
           ${voltar}
           <h1>${esc(licao.titulo)} <span class="muted titulo-sub">· páginas ${nums[0]}${nums.length > 1 ? ' a ' + nums.at(-1) : ''}</span></h1>
@@ -412,13 +430,25 @@ const App = (() => {
   const ehEscrita = q => teste.modo !== 'rapido' && q.escrita;
 
   function blocoPagina(q) {
-    const pg = pagina(teste.livro, q.pagina);
+    const pg = pagina(teste.livro, q.pagina), src = img(teste.livro, pg), z = q.zona;
+    const zona = z ? ` data-zona="${z.join(',')}"` : '';
     return `
       <div class="ajuda-pagina">
-        <img src="${img(teste.livro, pg)}" alt="Página ${q.pagina}" data-ampliar="${img(teste.livro, pg)}">
-        <div><b>📍 Procura na página ${q.pagina}:</b><br>${esc(q.onde)}<br><span class="muted">Clica na página para a ver em grande.</span></div>
+        <div class="pagina-marcada" data-ampliar="${src}"${zona}>
+          <img src="${src}" alt="Página ${q.pagina}">
+          ${z ? `<span class="marca" style="${estiloZona(z)}"></span>` : ''}
+        </div>
+        <div class="ajuda-texto">
+          <b>📍 Procura na página ${q.pagina}:</b><br>${esc(q.onde)}
+          ${z ? `<div class="recorte" data-ampliar="${src}"${zona}><img src="${src}" alt="Zona da página ${q.pagina} onde está a resposta" style="${estiloRecorte(z)}"></div>` : ''}
+          <span class="muted">Clica na página para a ver em grande.</span>
+        </div>
       </div>`;
   }
+
+  // A marca é uma moldura por cima da página; o recorte mostra só essa zona, ampliada.
+  const estiloZona = ([x, y, w, h]) => `left:${x}%;top:${y}%;width:${w}%;height:${h}%`;
+  const estiloRecorte = ([x, y, w, h]) => `width:${10000 / w}%;left:${-100 * x / w}%;top:${-100 * y / h}%;height:${10000 / h}%`;
 
   function topoPergunta(q) {
     const total = teste.perguntas.length;
@@ -427,8 +457,35 @@ const App = (() => {
         <span>${teste.modo === 'real' ? '🎓 Teste real · ' : ''}Pergunta ${teste.indice + 1} de ${total}</span>
         <span class="nivel n${q.nivel}" title="Nível de dificuldade">${NIVEL[q.nivel]}</span>
       </div>
-      <div class="progresso"><div style="width:${pct(teste.indice, total)}%"></div></div>`;
+      <div class="progresso"><div style="width:${pct(teste.indice, total)}%"></div></div>
+      <div class="teste-acoes" id="teste-acoes">
+        ${teste.modo === 'real' ? '' : `<button class="btn" id="ver-materia" title="Abre a lição desta pergunta. Se ainda não respondeste, conta como ajuda.">📖 Ver a matéria</button>`}
+        <button class="btn" id="sair-teste">✕ Sair do teste</button>
+      </div>`;
   }
+
+  // Botões do topo da pergunta: ir ver a matéria (e voltar) ou desistir do teste.
+  function ligarAcoesTeste(q) {
+    document.getElementById('ver-materia')?.addEventListener('click', () => {
+      if (teste.respondida == null) teste.ajuda = true;
+      location.hash = `#/estudar/${teste.livro}/${q.pagina}/${teste.avaliacao.id}`;
+    });
+    document.getElementById('sair-teste')?.addEventListener('click', () => {
+      document.getElementById('teste-acoes').innerHTML = `
+        <span>Sair? As respostas deste teste não ficam guardadas.</span>
+        <button class="btn perigo" id="sair-sim">Sim, sair</button>
+        <button class="btn prim" id="sair-nao">Continuar o teste</button>`;
+      document.getElementById('sair-nao').onclick = () => ecraPergunta();
+      document.getElementById('sair-sim').onclick = () => { const id = teste.avaliacao.id; teste = null; location.hash = '#/t/' + id; };
+    });
+  }
+
+  // Aviso de teste a meio (nos ecrãs de estudo), com o caminho de volta.
+  const testeAMeio = () => teste && !teste.registo ? `
+    <div class="cartao aviso-teste">
+      <span>📝 Tens um teste a meio (pergunta ${teste.indice + 1} de ${teste.perguntas.length}).</span>
+      <a class="btn prim" href="#/teste">↩ Voltar ao teste</a>
+    </div>` : '';
 
   const botaoSeguinte = () => `<button class="btn prim grande" id="seguinte">${teste.indice + 1 < teste.perguntas.length ? 'Seguinte →' : 'Ver resultado 🏁'}</button>`;
 
@@ -467,6 +524,7 @@ const App = (() => {
         ${feedback}
       </section>`);
 
+    ligarAcoesTeste(q);
     $app.querySelectorAll('[data-op]').forEach(bt => bt.onclick = () => responder(+bt.dataset.op));
     document.getElementById('ajuda')?.addEventListener('click', () => { teste.ajuda = true; ecraPergunta(); });
     document.getElementById('seguinte')?.addEventListener('click', seguinte);
@@ -528,10 +586,13 @@ const App = (() => {
         <h2 class="enunciado">${esc(e.pergunta || q.pergunta)}</h2>
         ${corpo}
       </section>`);
+    ligarAcoesTeste(q);
 
     const f = document.getElementById('f-escrita');
     if (f) {
       const $r = document.getElementById('resp');
+      $r.value = teste.rascunho || '';
+      $r.oninput = () => { teste.rascunho = $r.value; };
       $r.focus();
       f.onsubmit = ev => { ev.preventDefault(); responderEscrita(q, $r.value.trim()); };
     }
@@ -588,6 +649,7 @@ const App = (() => {
     teste.indice++;
     teste.ajuda = false;
     teste.respondida = null;
+    teste.rascunho = '';
     if (teste.indice < teste.perguntas.length) return ecraPergunta();
 
     const a = teste.avaliacao;
@@ -954,8 +1016,10 @@ const App = (() => {
 
   async function carregarLivro(info, disciplina) {
     const bancos = await Promise.all(info.bancos.map(lerJson));
-    const paginas = bancos.flatMap(b => b.paginas.map(p => ({ ...p, capitulo: b.capitulo })));
-    const perguntas = bancos.flatMap(b => b.perguntas);
+    const paginas = bancos.flatMap(b => (b.paginas || []).map(p => ({ ...p, capitulo: b.capitulo })));
+    // zonas: { pagina: { onde: [x, y, largura, altura] em % da página } } — onde está a resposta na imagem.
+    const zonas = Object.assign({}, ...bancos.map(b => b.zonas || {}));
+    const perguntas = bancos.flatMap(b => b.perguntas || []).map(q => ({ ...q, zona: q.zona || zonas[q.pagina]?.[q.onde] }));
     const licoes = bancos.flatMap(b => b.licoes || []);
     let url = f => '../' + info.base + f;
     if (db) {
