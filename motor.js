@@ -4,11 +4,12 @@
 // - A dificuldade escolhida define a mistura de níveis.
 // - Perguntas erradas antes têm mais probabilidade de voltar a sair.
 const Motor = (() => {
-  // Fácil/Médio/Difícil dão só perguntas desse nível; Misto mistura.
+  // Fácil dá só perguntas fáceis. Médio e Difícil mantêm algumas mais fáceis pelo meio,
+  // para ela ir acertando e não desmotivar.
   const MISTURAS = {
     facil:   { 1: 1, 2: 0, 3: 0 },
-    medio:   { 1: 0, 2: 1, 3: 0 },
-    dificil: { 1: 0, 2: 0, 3: 1 },
+    medio:   { 1: 0.3, 2: 0.7, 3: 0 },
+    dificil: { 1: 0.2, 2: 0.3, 3: 0.5 },
     misto:   { 1: 0.4, 2: 0.4, 3: 0.2 },
   };
   // Se faltarem perguntas do nível escolhido, completa com o nível mais próximo.
@@ -55,9 +56,9 @@ const Motor = (() => {
     return escolhidas;
   }
 
-  // Com um nível escolhido, mais vale um teste mais curto (mínimo 5) do que misturar níveis.
+  // No Fácil, mais vale um teste mais curto (mínimo 5) do que meter perguntas mais difíceis.
   const MINIMO = 5;
-  const chega = (selecao, dificuldade) => dificuldade !== 'misto' && selecao.length >= MINIMO;
+  const chega = (selecao, dificuldade) => dificuldade === 'facil' && selecao.length >= MINIMO;
 
   // Completa até n, nível a nível pela ordem dada, preferindo as primeiras listas (a lição antes das anteriores).
   function completar(listas, n, selecao, ordem, peso) {

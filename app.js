@@ -19,9 +19,9 @@ const App = (() => {
   let pronto = false;        // matéria e progresso carregados
 
   const DIFICULDADES = {
-    facil:   { nome: 'Fácil',   desc: 'Sobretudo o que está destacado no livro', estrelas: '★' },
-    medio:   { nome: 'Médio',   desc: 'Perceber e relacionar ideias',             estrelas: '★★' },
-    dificil: { nome: 'Difícil', desc: 'Deduzir o que não está escrito',            estrelas: '★★★' },
+    facil:   { nome: 'Fácil',   desc: 'Só perguntas fáceis: o que está destacado no livro', estrelas: '★' },
+    medio:   { nome: 'Médio',   desc: 'Perceber e relacionar ideias, com algumas fáceis',   estrelas: '★★' },
+    dificil: { nome: 'Difícil', desc: 'Deduzir e explicar, com médias e fáceis pelo meio',  estrelas: '★★★' },
     misto:   { nome: 'Misto',   desc: 'Um pouco de tudo',                          estrelas: '★ ★★ ★★★' },
   };
   const NIVEL = { 1: '★', 2: '★★', 3: '★★★' };
@@ -79,6 +79,17 @@ const App = (() => {
   }
   // Conta também os testes antigos, que eram por página.
   const melhorNotaLicao = (lid, nums) => melhorNota(t => t.livro === lid && t.tipo !== 'global' && nums.includes(t.pagina));
+
+  // Progressão por níveis: um nível da lição fica "dominado" com 80% ou mais num teste desse nível.
+  // A app sugere o nível seguinte (aconselha, não obriga).
+  const DOMINIO = 80;
+  const NIVEL_DE = { facil: 1, medio: 2, dificil: 3 };
+  const DIF_DE = { 1: 'facil', 2: 'medio', 3: 'dificil' };
+  function nivelDominado(lid, nums) {
+    return A.estado.testes.reduce((max, t) => t.livro === lid && t.tipo !== 'global' && nums.includes(t.pagina)
+      && t.percent >= DOMINIO && NIVEL_DE[t.dificuldade] > max ? NIVEL_DE[t.dificuldade] : max, 0);
+  }
+  const difSugerida = (lid, nums) => DIF_DE[Math.min(3, nivelDominado(lid, nums) + 1)];
 
   function progressoAvaliacao(a) {
     const pags = paginasDaAvaliacao(a);
@@ -230,6 +241,7 @@ const App = (() => {
           <div class="estado">
             ${licaoEstudada(lid, g.nums) ? '<span class="chip ok">✓ Estudada</span>' : '<span class="chip">Por estudar</span>'}
             ${nota != null ? `<span class="chip ${nota >= 70 ? 'ok' : 'aviso'}">Melhor nota: ${nota}%</span>` : ''}
+            ${nivelDominado(lid, g.nums) ? `<span class="chip ok" title="Nível em que já acertou ${DOMINIO}% ou mais">🏅 ${NIVEL[nivelDominado(lid, g.nums)]}</span>` : ''}
             ${temVideo ? '<span class="chip ok">🎬 Com vídeo</span>' : g.licao?.video ? '<span class="chip">Vídeo em breve</span>' : ''}
             <span class="muted">${nPerg} perguntas</span>
           </div>
@@ -274,18 +286,20 @@ const App = (() => {
       </section>`);
   }
 
-  // Uma linha por lição (as páginas de um vídeo), com estudar e testar.
-  function listaPorLicao(lid, nums, a) {
-    const l = livros[lid];
+  // Agrupa páginas seguidas da mesma lição.
+  function gruposLicoes(lid, nums) {
     const grupos = [];
     for (const n of nums) {
-      const licao = l.licoes.find(x => x.paginas.includes(n));
+      const licao = livros[lid].licoes.find(x => x.paginas.includes(n));
       const ultimo = grupos.at(-1);
       if (ultimo && ultimo.licao === licao && licao) ultimo.nums.push(n);
       else grupos.push({ licao, nums: [n] });
     }
-    return `<ol class="pag-lista">${grupos.map(g => linhaLicao(lid, g, a)).join('')}</ol>`;
+    return grupos;
   }
+
+  // Uma linha por lição (as páginas de um vídeo), com estudar e testar.
+  const listaPorLicao = (lid, nums, a) => `<ol class="pag-lista">${gruposLicoes(lid, nums).map(g => linhaLicao(lid, g, a)).join('')}</ol>`;
 
   // Os vídeos ficam no Google Drive do pai, partilhados com a conta Google da Leonor
   // (ocupam muito espaço para o Supabase). Em modo local usa-se o ficheiro da pasta Videos.
@@ -391,6 +405,7 @@ const App = (() => {
         : `Todas as perguntas são desta lição (${intervalo(alvo)}).`;
     // O teste real é sempre sobre a matéria toda.
     const modos = alvo == null ? MODOS : { escola: MODOS.escola, rapido: MODOS.rapido };
+    const sugerida = alvo ? difSugerida(a.livro, alvo) : null;
     if (!modos[modoEscolhido]) modoEscolhido = 'escola';
 
     render(`
@@ -406,9 +421,13 @@ const App = (() => {
             </button>`).join('')}
         </div>
         <h2>Escolhe a dificuldade</h2>
+        ${sugerida ? `<p class="muted">${nivelDominado(a.livro, alvo)
+          ? `🏅 Já dominas o nível ${DIFICULDADES[DIF_DE[nivelDominado(a.livro, alvo)]].nome} desta lição. Sugestão: ${DIFICULDADES[sugerida].nome}.`
+          : 'Sugestão: começa pelo Fácil e sobe de nível quando acertares 80% ou mais.'}</p>` : ''}
         <div class="dificuldades">
           ${Object.entries(DIFICULDADES).map(([k, d]) => `
-            <button class="dif" data-dif="${k}">
+            <button class="dif ${k === sugerida ? 'sugerida' : ''}" data-dif="${k}">
+              ${k === sugerida ? '<span class="chip ok">👉 Sugerido</span>' : ''}
               <span class="estrelas">${d.estrelas}</span>
               <b>${d.nome}</b>
               <span class="muted">${d.desc}</span>
@@ -709,6 +728,13 @@ const App = (() => {
         <div class="niveis">
           ${[1, 2, 3].filter(n => t.porNivel[n]).map(n => `<span class="chip">${NIVEL[n]} ${t.porNivel[n].certas}/${t.porNivel[n].total}</span>`).join('')}
         </div>
+        ${t.licao && t.percent >= DOMINIO && t.dificuldade !== 'dificil' && t.dificuldade !== 'misto' ? `
+          <div class="feedback bom subir">
+            <b>🚀 Já dominas o nível ${DIFICULDADES[t.dificuldade].nome} desta lição!</b>
+            Experimenta agora o ${DIFICULDADES[DIF_DE[NIVEL_DE[t.dificuldade] + 1]].nome}.
+            <a class="btn prim" href="#/testar/${t.avaliacao}/${t.pagina}">Experimentar o ${DIFICULDADES[DIF_DE[NIVEL_DE[t.dificuldade] + 1]].nome} ${DIFICULDADES[DIF_DE[NIVEL_DE[t.dificuldade] + 1]].estrelas}</a>
+          </div>` : t.licao && t.percent >= DOMINIO && t.dificuldade === 'dificil' ? `
+          <div class="feedback bom subir"><b>🏆 Dominas esta lição até ao nível mais difícil!</b> Passa à lição seguinte ou faz o teste global.</div>` : ''}
         ${erradas.length ? `
           <h2>Para rever</h2>
           <ul class="rever">
@@ -901,15 +927,18 @@ const App = (() => {
         <td>${estudadas}/${total}</td><td>${feitos.length}</td><td>${nota != null ? nota + '%' : '—'}</td></tr>`;
     }).join('');
 
-    const tabelasPaginas = Object.values(livros).map(l => `
+    const tabelasLicoes = Object.values(livros).map(l => `
       <h3>${esc(disciplinas[l.disciplina].nome)} · ${esc(l.titulo)}</h3>
       <table>
-        <thead><tr><th>Página</th><th>Estudada</th><th>Tempo</th><th>Testes</th><th>Melhor nota</th></tr></thead>
-        <tbody>${l.paginas.map(pg => {
-          const info = A.infoPagina(l.id, pg.numero);
-          const nTestes = e.testes.filter(t => t.livro === l.id && (t.licao || [t.pagina]).includes(pg.numero)).length;
-          const nota = melhorNotaPagina(l.id, pg.numero);
-          return `<tr><td>${pg.numero} · ${esc(pg.titulo)}</td><td>${info.estudada ? '✓' : '—'}</td><td>${fmt(info.segundos)}</td><td>${nTestes}</td><td>${nota != null ? nota + '%' : '—'}</td></tr>`;
+        <thead><tr><th>Lição</th><th>Estudada</th><th>Tempo</th><th>Testes</th><th>Melhor nota</th><th title="Nível em que já acertou ${DOMINIO}% ou mais">Nível dominado</th></tr></thead>
+        <tbody>${gruposLicoes(l.id, l.paginas.map(p => p.numero)).map(g => {
+          const titulo = g.licao?.titulo || pagina(l.id, g.nums[0]).titulo;
+          const segundos = g.nums.reduce((s, n) => s + (A.infoPagina(l.id, n).segundos || 0), 0);
+          const nTestes = e.testes.filter(t => t.livro === l.id && t.tipo !== 'global' && g.nums.includes(t.pagina)).length;
+          const nota = melhorNotaLicao(l.id, g.nums);
+          const nivel = nivelDominado(l.id, g.nums);
+          return `<tr><td>${esc(titulo)} <small class="muted">(${intervalo(g.nums)})</small></td><td>${licaoEstudada(l.id, g.nums) ? '✓' : '—'}</td>
+            <td>${fmt(segundos)}</td><td>${nTestes}</td><td>${nota != null ? nota + '%' : '—'}</td><td>${nivel ? NIVEL[nivel] : '—'}</td></tr>`;
         }).join('')}</tbody>
       </table>`).join('');
 
@@ -953,8 +982,9 @@ const App = (() => {
           ${[1, 2, 3].map(n => `<span class="chip">${NIVEL[n]} ${porNivel[n].t ? pct(porNivel[n].c, porNivel[n].t) + '%' : '—'} <small class="muted">(${porNivel[n].c}/${porNivel[n].t})</small></span>`).join('')}
         </div>
 
-        <h2>Páginas</h2>
-        ${tabelasPaginas}
+        <h2>Lições</h2>
+        <p class="muted">Nível dominado: o nível mais alto em que ela já acertou ${DOMINIO}% ou mais num teste da lição. O ideal é ir subindo de ★ para ★★★.</p>
+        ${tabelasLicoes}
 
         <h2>Últimos treinos</h2>
         ${e.testes.length ? `<table>
