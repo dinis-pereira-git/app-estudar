@@ -11,7 +11,10 @@
           "titulo": "Viajantes 6 · Conteúdos do 5.º ano",
           "descricao": "Caderno de revisão do 5.º ano do Viajantes 6 (ASA)",
           "base": "2026-2027/HGP/Viajantes6-Conteudos5ano/",
-          "bancos": ["2026-2027/HGP/Viajantes6-Conteudos5ano/perguntas-c3.json"]
+          "bancos": [
+            "2026-2027/HGP/Viajantes6-Conteudos5ano/perguntas-c3.json",
+            "2026-2027/HGP/Viajantes6-Conteudos5ano/perguntas-c3-p10-35.json"
+          ]
         }
       ]
     }
