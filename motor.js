@@ -4,12 +4,15 @@
 // - A dificuldade escolhida define a mistura de níveis.
 // - Perguntas erradas antes têm mais probabilidade de voltar a sair.
 const Motor = (() => {
+  // Fácil/Médio/Difícil dão só perguntas desse nível; Misto mistura.
   const MISTURAS = {
-    facil:   { 1: 0.6, 2: 0.3, 3: 0.1 },
-    medio:   { 1: 0.3, 2: 0.5, 3: 0.2 },
-    dificil: { 1: 0.1, 2: 0.4, 3: 0.5 },
+    facil:   { 1: 1, 2: 0, 3: 0 },
+    medio:   { 1: 0, 2: 1, 3: 0 },
+    dificil: { 1: 0, 2: 0, 3: 1 },
     misto:   { 1: 0.4, 2: 0.4, 3: 0.2 },
   };
+  // Se faltarem perguntas do nível escolhido, completa com o nível mais próximo.
+  const ORDEM = { facil: [1, 2, 3], medio: [2, 1, 3], dificil: [3, 2, 1], misto: [1, 2, 3] };
   const PERCENT_PAGINA_NOVA = 0.7;
   const TAMANHO = { licao: 10, global: 15 };
 
@@ -40,7 +43,7 @@ const Motor = (() => {
     return out;
   }
 
-  // Quotas por nível pelo método do maior resto, depois completa com o que houver.
+  // Quotas por nível pelo método do maior resto (pode ficar com menos de n).
   function porNivel(lista, n, mistura, peso) {
     const brutas = [1, 2, 3].map(l => n * mistura[l]);
     const quotas = brutas.map(Math.floor);
@@ -49,8 +52,19 @@ const Motor = (() => {
 
     const escolhidas = [];
     [1, 2, 3].forEach((nivel, i) => escolhidas.push(...amostraPesada(lista.filter(q => q.nivel === nivel), quotas[i], peso)));
-    if (escolhidas.length < n) escolhidas.push(...amostraPesada(lista.filter(q => !escolhidas.includes(q)), n - escolhidas.length, peso));
     return escolhidas;
+  }
+
+  // Com um nível escolhido, mais vale um teste mais curto (mínimo 5) do que misturar níveis.
+  const MINIMO = 5;
+  const chega = (selecao, dificuldade) => dificuldade !== 'misto' && selecao.length >= MINIMO;
+
+  // Completa até n, nível a nível pela ordem dada, preferindo as primeiras listas (a lição antes das anteriores).
+  function completar(listas, n, selecao, ordem, peso) {
+    for (const nivel of ordem) for (const l of listas) {
+      if (selecao.length >= n) return;
+      selecao.push(...amostraPesada(l.filter(q => q.nivel === nivel && !selecao.includes(q)), n - selecao.length, peso));
+    }
   }
 
   function gerar({ perguntas, historico, paginas, alvo, dificuldade }) {
@@ -61,7 +75,9 @@ const Motor = (() => {
 
     if (alvo == null) {
       const pool = perguntas.filter(q => paginas.includes(q.pagina));
-      selecao = porNivel(pool, Math.min(TAMANHO.global, pool.length), mistura, peso);
+      const n = Math.min(TAMANHO.global, pool.length);
+      selecao = porNivel(pool, n, mistura, peso);
+      if (!chega(selecao, dificuldade)) completar([pool], n, selecao, ORDEM[dificuldade], peso);
     } else {
       // alvo = páginas da lição
       const novas = perguntas.filter(q => alvo.includes(q.pagina));
@@ -70,6 +86,7 @@ const Motor = (() => {
       const nNovas = Math.min(novas.length, antigas.length ? Math.round(n * PERCENT_PAGINA_NOVA) : n);
       selecao = porNivel(novas, nNovas, mistura, peso);
       selecao.push(...porNivel(antigas, n - selecao.length, mistura, peso));
+      if (!chega(selecao, dificuldade)) completar([novas, antigas], n, selecao, ORDEM[dificuldade], peso);
     }
 
     // Baralha a ordem das perguntas e das opções (exceto verdadeiro/falso).
