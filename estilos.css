@@ -19,6 +19,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--fundo); color: var(--texto); font-size: 17px; line-height: 1.45; }
 h1 { font-size: 24px; margin: 0 0 6px; }
 h2 { font-size: 19px; margin: 22px 0 10px; }
