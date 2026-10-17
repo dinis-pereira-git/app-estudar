@@ -142,8 +142,58 @@ const App = (() => {
     return res;
   }
   const comAjuda = t => t.respostas.filter(r => r.ajuda).length;
+
+  // ---------- perguntas que custam ----------
+  // Para cada pergunta, as tentativas por ordem (de todos os treinos). Uma tentativa é "boa" se acertou
+  // sem ajuda (e o pai/Claude não desmentiu a autoavaliação). Respostas autoavaliadas ainda por rever não contam.
+  function tentativasPorPergunta(ate) {
+    const m = {};
+    for (const t of A.estado.testes) {
+      if (t.modo === 'real' && t.estado !== 'corrigido') continue;
+      if (ate && t.data > ate) continue;
+      for (const r of t.respostas) {
+        if (porCorrigir(t) && autoavaliadas({ respostas: [r] }).length) continue;
+        (m[r.id] ||= []).push({ data: t.data, boa: !!r.certa && !r.ajuda && r.auditoria !== 'mal', ajuda: !!r.ajuda, estilo: estiloDe(r) });
+      }
+    }
+    return m;
+  }
+  // Estado de uma pergunta que já falhou alguma vez:
+  //   'custa'     – a última tentativa foi errada ou com ajuda
+  //   'melhorar'  – acertou as últimas 1 ou 2 vezes, mas ainda não 3 seguidas
+  //   'resolvida' – acertou as últimas 3 vezes seguidas sem ajuda
+  const SEGUIDAS = 3;
+  function estadoPergunta(ts) {
+    if (!ts?.some(x => !x.boa)) return null; // nunca falhou: não é "difícil"
+    let seguidas = 0;
+    for (let i = ts.length - 1; i >= 0 && ts[i].boa; i--) seguidas++;
+    return seguidas >= SEGUIDAS ? 'resolvida' : seguidas > 0 ? 'melhorar' : 'custa';
+  }
+  const ESTADO_CUSTA = {
+    custa: { nome: '🔴 Ainda custa', ordem: 0 },
+    melhorar: { nome: '🟡 A melhorar', ordem: 1 },
+    resolvida: { nome: '🟢 Já não custa', ordem: 2 },
+  };
+  // Lista das perguntas difíceis de um conjunto de páginas, das que mais custam para as que menos.
+  function perguntasQueCustam(lid, paginas, ate) {
+    const tent = tentativasPorPergunta(ate);
+    return livros[lid].perguntas.filter(q => !paginas || paginas.includes(q.pagina)).map(q => {
+      const ts = tent[q.id] || [];
+      const estado = estadoPergunta(ts);
+      const ultimas = ts.slice(-5);
+      return estado && { q, ts, estado, ultimas, falhasRecentes: ultimas.filter(x => !x.boa).length, falhas: ts.filter(x => !x.boa).length };
+    }).filter(Boolean)
+      .sort((a, b) => ESTADO_CUSTA[a.estado].ordem - ESTADO_CUSTA[b.estado].ordem || b.falhasRecentes - a.falhasRecentes || b.falhas - a.falhas);
+  }
+  const bolinhas = ts => ts.map(x => x.boa ? '✅' : x.ajuda ? '💡' : '❌').join('');
   // Respostas escritas em que foi ela a dizer se estava certa (pontos-chave marcados, ou "a minha também está certa").
   const autoavaliadas = t => t.respostas.filter(r => r.autoavaliada || r.corrigidaPelaAluna || (r.modo === 'explica' && r.confirmada));
+  // Média de um estilo: média simples das % dos 3 níveis (cada nível pesa o mesmo — não chega fazer só as fáceis).
+  function mediaEstilo(p, estilo) {
+    const vals = [1, 2, 3].map(n => p[estilo + n]).filter(c => c.total).map(c => 100 * c.certas / c.total);
+    return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null;
+  }
+  const corPct = v => v >= 80 ? 'bom' : v >= 40 ? 'medio' : v > 0 ? 'baixo' : '';
   const difSugerida = (lid, nums) => DIF_DE[Math.min(3, nivelDominado(lid, nums) + 1)];
 
   function progressoAvaliacao(a) {
@@ -210,6 +260,7 @@ const App = (() => {
     if (ecra === 't' && avaliacao(a)?.livroInteiro) return ecraLivro(avaliacao(a).livro);
     if (ecra === 't' && avaliacao(a)) return ecraAvaliacao(avaliacao(a));
     if (ecra === 'estudar' && livros[a]) return ecraEstudar(a, +b, c && avaliacao(c));
+    if (ecra === 'testar' && avaliacao(a) && b === 'custam') return ecraCustam(avaliacao(a));
     if (ecra === 'testar' && avaliacao(a)) return ecraDificuldade(avaliacao(a), b === 'global' ? null : +b);
     if (ecra === 'gerir' && disciplinas[a]) return ecraGerir(a, b);
     if (ecra === 'teste' && teste) return ecraPergunta();
@@ -317,11 +368,12 @@ const App = (() => {
       const v = pct(c.certas, c.total);
       return `<td class="cel-nivel ${v >= 80 ? 'bom' : v >= 40 ? 'medio' : v > 0 ? 'baixo' : ''}" title="${c.certas} de ${c.total} perguntas certas sem ajuda${c.ajuda ? `; mais ${c.ajuda} só com ajuda` : ''}">${v}%${c.ajuda ? '<sup>💡</sup>' : ''}</td>`;
     };
+    const media = e => { const m = mediaEstilo(p, e); return m == null ? '<td class="muted">—</td>' : `<td class="cel-nivel media ${corPct(m)}" title="Média dos 3 níveis">${m}%</td>`; };
     return `
       <table class="mini-niveis" title="Perguntas certas sem ajuda, por estilo e nível">
-        <tr><th></th><th>★</th><th>★★</th><th>★★★</th></tr>
-        <tr><th title="Respostas escritas (como na escola)">✍️</th>${[1, 2, 3].map(n => cel(p['escola' + n])).join('')}</tr>
-        <tr><th title="Escolha múltipla">⚡</th>${[1, 2, 3].map(n => cel(p['escolha' + n])).join('')}</tr>
+        <tr><th></th><th>★</th><th>★★</th><th>★★★</th><th>Média</th></tr>
+        <tr><th title="Respostas escritas (como na escola)">✍️</th>${[1, 2, 3].map(n => cel(p['escola' + n])).join('')}${media('escola')}</tr>
+        <tr><th title="Escolha múltipla">⚡</th>${[1, 2, 3].map(n => cel(p['escolha' + n])).join('')}${media('escolha')}</tr>
       </table>`;
   }
 
@@ -343,6 +395,7 @@ const App = (() => {
           <div><b>Teste global</b><br><span class="muted">Todas as páginas deste teste (${a.de} a ${a.ate}), com perguntas de vários níveis.</span></div>
           <a class="btn prim grande" href="#/testar/${a.id}/global">🏁 Fazer teste global</a>
         </div>
+        ${blocoCustam(a)}
       </section>`);
   }
 
@@ -355,6 +408,7 @@ const App = (() => {
         <h1>📕 ${esc(l.titulo)}</h1>
         <p class="muted">${esc(l.descricao || '')}. Estuda cada lição e testa-te logo a seguir. Para treinar para um teste da escola, abre esse teste na disciplina.</p>
         ${listaPorLicao(lid, l.paginas.map(p => p.numero), avaliacaoLivro(lid))}
+        ${blocoCustam(avaliacaoLivro(lid))}
       </section>`);
   }
 
@@ -523,6 +577,54 @@ const App = (() => {
       };
       location.hash = '#/teste';
     });
+  }
+
+  // ---------- treino "as que mais custam" ----------
+  // Só perguntas que ela já falhou e que ainda não estão resolvidas (3 certas seguidas sem ajuda),
+  // das que mais custam para as que menos. Serve para fazer descer o número de 🔴 no painel.
+  const TAMANHO_CUSTAM = 10;
+  function blocoCustam(a) {
+    const n = perguntasQueCustam(a.livro, paginasDaAvaliacao(a)).filter(x => x.estado !== 'resolvida').length;
+    return `
+      <div class="global">
+        <div><b>🎯 As que mais custam</b><br><span class="muted">${n ? `Treina as ${n} pergunta(s) que ainda te custam, até as acertares 3 vezes seguidas.` : 'Ainda não há perguntas que te custem aqui. 🎉'}</span></div>
+        ${n ? `<a class="btn grande" href="#/testar/${a.id}/custam">🎯 Treinar as que custam</a>` : ''}
+      </div>`;
+  }
+
+  function ecraCustam(a) {
+    const todas = perguntasQueCustam(a.livro, paginasDaAvaliacao(a)).filter(x => x.estado !== 'resolvida');
+    const modos = { escola: MODOS.escola, rapido: MODOS.rapido };
+    if (!modos[modoEscolhido]) modoEscolhido = 'escola';
+    const servem = x => modoEscolhido === 'rapido' ? x.q.opcoes : x.q.escrita;
+    const lista = todas.filter(servem).slice(0, TAMANHO_CUSTAM);
+    const n = c => todas.filter(x => x.estado === c).length;
+
+    render(`
+      <section class="cartao centro">
+        <a href="#/t/${a.id}" class="voltar">← ${esc(nomeAvaliacao(a))}</a>
+        <h1>🎯 As que mais custam</h1>
+        <p>${todas.length ? `Tens <b>${n('custa')}</b> pergunta(s) 🔴 que ainda custam e <b>${n('melhorar')}</b> 🟡 a melhorar. Cada uma fica 🟢 resolvida quando a acertares 3 vezes seguidas sem ajuda.` : 'Não há perguntas que te custem. 🎉'}</p>
+        ${todas.length ? `
+          <h2>Como queres treinar?</h2>
+          <div class="modos">
+            ${Object.entries(modos).map(([k, m]) => `
+              <button class="modo ${k === modoEscolhido ? 'ativo' : ''}" data-modo="${k}"><b>${m.nome}</b><span class="muted">${m.desc}</span></button>`).join('')}
+          </div>
+          <p class="muted">Este treino terá ${lista.length} pergunta(s), começando pelas que mais custam. Tenta não pedir ajuda: com ajuda não contam como acertadas.</p>
+          ${lista.length ? '<button class="btn prim grande" id="comecar">Começar</button>' : '<p>Neste modo não há perguntas destas — experimenta o outro.</p>'}` : ''}
+      </section>`);
+
+    $app.querySelectorAll('[data-modo]').forEach(bt => bt.onclick = () => { modoEscolhido = bt.dataset.modo; ecraCustam(a); });
+    const $c = document.getElementById('comecar');
+    if ($c) $c.onclick = () => {
+      teste = {
+        avaliacao: a, livro: a.livro, alvo: null, tipoTreino: 'custam', paginas: paginasDaAvaliacao(a), dificuldade: 'misto', modo: modoEscolhido,
+        inicio: new Date().toISOString(), perguntas: Motor.preparar(lista.map(x => x.q)),
+        indice: 0, respostas: [], ajuda: false, respondida: null,
+      };
+      location.hash = '#/teste';
+    };
   }
 
   // ---------- correção das respostas curtas ----------
@@ -778,7 +880,7 @@ const App = (() => {
     teste.registo = {
       id: Date.now(), data: new Date().toISOString(), disciplina: a.disciplina, livro: a.livro,
       avaliacao: a.id, avaliacaoNome: nomeAvaliacao(a), modo: teste.modo, estado: real ? 'por corrigir' : escola ? 'por rever' : 'feito',
-      tipo: teste.alvo == null ? 'global' : 'licao', pagina: teste.alvo?.[0] ?? null, licao: teste.alvo,
+      tipo: teste.tipoTreino || (teste.alvo == null ? 'global' : 'licao'), pagina: teste.alvo?.[0] ?? null, licao: teste.alvo,
       paginas: [teste.paginas[0], teste.paginas[teste.paginas.length - 1]],
       dificuldade: teste.dificuldade, exato: teste.exato, total: teste.respostas.length, ...nota, respostas: teste.respostas,
     };
@@ -831,7 +933,7 @@ const App = (() => {
             ${erradas.map(q => `<li><b>${esc(ehEscrita(q) ? q.escrita.pergunta || q.pergunta : q.pergunta)}</b><br>✔ ${esc(respostaCerta(q))}<br><span class="muted">📍 Página ${q.pagina}: ${esc(q.onde)}</span></li>`).join('')}
           </ul>` : '<p>Acertaste tudo sem ajuda! 🎉</p>'}
         <div class="linha-botoes">
-          <a class="btn prim" href="#/testar/${t.avaliacao}/${t.pagina ?? 'global'}">🔁 Repetir</a>
+          <a class="btn prim" href="#/testar/${t.avaliacao}/${t.tipo === 'custam' ? 'custam' : t.pagina ?? 'global'}">🔁 Repetir</a>
           ${t.pagina ? `<a class="btn" href="#/estudar/${t.livro}/${t.pagina}/${t.avaliacao}">📖 Rever a lição</a>` : ''}
           <a class="btn" href="#/t/${t.avaliacao}">Voltar ao teste</a>
         </div>
@@ -845,7 +947,7 @@ const App = (() => {
   const porCorrigir = t => corrigivel(t) && t.estado !== 'corrigido';
   const testeReal = id => A.estado.testes.find(t => corrigivel(t) && String(t.id) === String(id));
   const perguntaDoBanco = (t, qid) => livros[t.livro]?.perguntas.find(q => q.id === qid);
-  const nomeTreino = t => t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`;
+  const nomeTreino = t => t.tipo === 'custam' ? '🎯 As que mais custam' : t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`;
 
   function ecraTesteReal(t) {
     const corrigido = t.estado === 'corrigido';
@@ -1106,10 +1208,32 @@ const App = (() => {
     const porNivel = { 1: { c: 0, t: 0 }, 2: { c: 0, t: 0 }, 3: { c: 0, t: 0 } };
     comNota.forEach(t => t.respostas.forEach(r => { porNivel[r.nivel].t++; if (r.certa && !r.ajuda) porNivel[r.nivel].c++; }));
 
-    const todasPerguntas = Object.values(livros).flatMap(l => l.perguntas);
-    const dificeis = Object.entries(e.historico).filter(([, h]) => h.erradas > 0)
-      .sort((a, b) => (b[1].erradas - b[1].certas) - (a[1].erradas - a[1].certas)).slice(0, 5)
-      .map(([qid, h]) => ({ q: todasPerguntas.find(q => q.id === qid), h })).filter(x => x.q);
+    // Perguntas que custam: estado atual e comparação com há 7 dias, para se ver se estão a diminuir.
+    const contarEstados = lista => Object.fromEntries(Object.keys(ESTADO_CUSTA).map(k => [k, lista.filter(x => x.estado === k).length]));
+    const ha7 = new Date(); ha7.setDate(ha7.getDate() - 7);
+    const custamPorLivro = Object.values(livros).map(l => {
+      const lista = perguntasQueCustam(l.id);
+      return { l, lista, agora: contarEstados(lista), antes: contarEstados(perguntasQueCustam(l.id, null, ha7.toISOString())) };
+    });
+    const htmlCustam = custamPorLivro.map(({ l, lista, agora, antes }) => {
+      const dif = agora.custa - antes.custa;
+      const tendencia = dif < 0 ? `📉 ${-dif} a menos que há 7 dias` : dif > 0 ? `📈 ${dif} a mais que há 7 dias` : 'igual a há 7 dias';
+      const linha = x => `<tr><td>${esc(x.q.pergunta)}<br><small class="muted">Página ${x.q.pagina} · ${NIVEL[x.q.nivel]}</small></td>
+        <td>${ESTADO_CUSTA[x.estado].nome}</td><td class="bolinhas" title="Últimas tentativas, da mais antiga para a mais recente">${bolinhas(x.ultimas)}</td>
+        <td>${x.falhas} de ${x.ts.length}</td></tr>`;
+      const ativas = lista.filter(x => x.estado !== 'resolvida');
+      return `
+        <h3>${esc(disciplinas[l.disciplina].nome)} · ${esc(l.titulo)}</h3>
+        <div class="kpis">
+          <div class="kpi"><span>🔴 Ainda custam</span><b>${agora.custa}</b><small class="muted">${tendencia}</small></div>
+          <div class="kpi"><span>🟡 A melhorar</span><b>${agora.melhorar}</b></div>
+          <div class="kpi"><span>🟢 Já não custam</span><b>${agora.resolvida}</b></div>
+        </div>
+        ${ativas.length ? `<div class="tabela-larga"><table>
+          <thead><tr><th>Pergunta</th><th>Estado</th><th>Últimas tentativas</th><th>Falhas</th></tr></thead>
+          <tbody>${ativas.slice(0, 15).map(linha).join('')}</tbody></table></div>
+          ${ativas.length > 15 ? `<p class="muted">… e mais ${ativas.length - 15}.</p>` : ''}` : (lista.length ? '<p>🎉 Todas as perguntas que custavam já estão resolvidas.</p>' : '<p class="muted">Ainda não há perguntas difíceis.</p>')}`;
+    }).join('');
 
     const dataPt = d => d.toLocaleDateString('pt-PT', { weekday: 'short', day: 'numeric', month: 'long' });
     const porSemana = x => x >= 1 ? `${Math.ceil(x)} lição(ões) por dia` : `${Math.ceil(x * 7)} lição(ões) por semana`;
@@ -1146,7 +1270,12 @@ const App = (() => {
       return `<td class="cel-nivel ${p >= 80 ? 'bom' : p >= 40 ? 'medio' : p > 0 ? 'baixo' : ''}" title="${c.certas} de ${c.total} perguntas certas sem ajuda${c.ajuda ? `; mais ${c.ajuda} só com ajuda` : ''}">${p}%${c.ajuda ? `<small> +${c.ajuda}💡</small>` : ''}</td>`;
     };
     const soma = linhas => Object.fromEntries(Object.keys(linhas[0] || {}).map(k => [k, linhas.reduce((s, x) => ({ total: s.total + x[k].total, certas: s.certas + x[k].certas, ajuda: s.ajuda + x[k].ajuda }), { total: 0, certas: 0, ajuda: 0 })]));
-    const chaves = Object.keys(ESTILOS).flatMap(e => [1, 2, 3].map(n => e + n));
+    const chaves = Object.keys(ESTILOS).flatMap(e => [1, 2, 3, 'M'].map(n => e + n));
+    const celulaOuMedia = (p, k) => {
+      if (!k.endsWith('M')) return celula(p[k]);
+      const m = mediaEstilo(p, k.slice(0, -1));
+      return m == null ? '<td class="muted">—</td>' : `<td class="cel-nivel media ${corPct(m)}" title="Média dos 3 níveis">${m}%</td>`;
+    };
     const tabelasNiveis = Object.values(livros).map(l => {
       const linhas = gruposLicoes(l.id, l.paginas.map(p => p.numero)).map(g => ({ g, p: progressoNiveis(l.id, g.nums) }));
       const total = soma(linhas.map(x => x.p));
@@ -1154,12 +1283,12 @@ const App = (() => {
         <h3>${esc(disciplinas[l.disciplina].nome)} · ${esc(l.titulo)}</h3>
         <div class="tabela-larga"><table class="tabela-niveis">
           <thead>
-            <tr><th rowspan="2">Lição</th>${Object.values(ESTILOS).map(n => `<th colspan="3">${n}</th>`).join('')}</tr>
-            <tr>${chaves.map(k => `<th>${NIVEL[k.slice(-1)]}</th>`).join('')}</tr>
+            <tr><th rowspan="2">Lição</th>${Object.values(ESTILOS).map(n => `<th colspan="4">${n}</th>`).join('')}</tr>
+            <tr>${chaves.map(k => `<th>${k.endsWith('M') ? 'Média' : NIVEL[k.slice(-1)]}</th>`).join('')}</tr>
           </thead>
           <tbody>
-            ${linhas.map(({ g, p }) => `<tr><td>${esc(g.licao?.titulo || pagina(l.id, g.nums[0]).titulo)} <small class="muted">(${intervalo(g.nums)})</small></td>${chaves.map(k => celula(p[k])).join('')}</tr>`).join('')}
-            <tr class="total"><td><b>Total</b></td>${chaves.map(k => celula(total[k])).join('')}</tr>
+            ${linhas.map(({ g, p }) => `<tr><td>${esc(g.licao?.titulo || pagina(l.id, g.nums[0]).titulo)} <small class="muted">(${intervalo(g.nums)})</small></td>${chaves.map(k => celulaOuMedia(p, k)).join('')}</tr>`).join('')}
+            <tr class="total"><td><b>Total</b></td>${chaves.map(k => celulaOuMedia(total, k)).join('')}</tr>
           </tbody>
         </table></div>`;
     }).join('');
@@ -1244,7 +1373,7 @@ const App = (() => {
           <thead><tr><th>Data</th><th>Teste da escola</th><th>Treino</th><th>Dificuldade</th><th>Nota</th><th title="Respostas em que pediu ajuda ou foi ver a matéria (valem metade)">💡 Com ajuda</th><th title="Respostas que ela própria corrigiu">✋ Autoavaliadas</th></tr></thead>
           <tbody>${[...e.testes].reverse().slice(0, 15).map(t => `<tr><td>${dataCurta(t.data)}</td>
             <td>${esc(t.avaliacaoNome || '—')}</td>
-            <td>${t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`}</td>
+            <td>${nomeTreino(t)}</td>
             <td>${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯' : ''}</td>
             <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>${t.autoPercent != null ? ` <small class="muted">✋ ${t.autoPercent}%</small>` : ''}`
               : t.autoPercent != null ? `<span class="chip aviso">✋ ${t.autoPercent}% · ⏳ final</span>` : '<span class="chip aviso">Por corrigir</span>'}</td>
@@ -1253,7 +1382,10 @@ const App = (() => {
         </table>` : '<p class="muted">Ainda não há treinos.</p>'}
 
         <h2>Perguntas que custam mais</h2>
-        ${dificeis.length ? `<ul class="rever">${dificeis.map(({ q, h }) => `<li><b>${esc(q.pergunta)}</b><br><span class="muted">Página ${q.pagina} · ${NIVEL[q.nivel]} · ${h.erradas} vez(es) errada ou com ajuda, ${h.certas} certa(s)</span></li>`).join('')}</ul>` : '<p class="muted">Ainda não há dados.</p>'}
+        <p class="muted">Perguntas que ela já falhou (ou só acertou com ajuda) alguma vez. <b>🔴 Ainda custa</b>: a última tentativa falhou ·
+          <b>🟡 A melhorar</b>: acertou as últimas 1–2 vezes · <b>🟢 Já não custa</b>: acertou ${SEGUIDAS} vezes seguidas sem ajuda.
+          O objetivo é o número de 🔴 ir descendo — para isso há o treino <b>"🎯 As que mais custam"</b> em cada teste e no livro.</p>
+        ${htmlCustam}
 
         <p><button class="btn" id="exportar">⬇️ Guardar cópia do progresso</button></p>
 

@@ -92,12 +92,17 @@ const Motor = (() => {
       if (!chega(selecao, dificuldade)) completar([novas, antigas], n, selecao, ORDEM[dificuldade], peso);
     }
 
-    // Baralha a ordem das perguntas e das opções (exceto verdadeiro/falso).
+    return preparar(selecao);
+  }
+
+  // Baralha a ordem das perguntas e das opções (exceto verdadeiro/falso).
+  function preparar(selecao) {
     return baralhar(selecao).map(q => {
+      if (!q.opcoes) return { ...q };
       const ordem = q.tipo === 'vf' ? q.opcoes.map((_, i) => i) : baralhar(q.opcoes.map((_, i) => i));
       return { ...q, opcoes: ordem.map(i => q.opcoes[i]), correta: ordem.indexOf(q.correta) };
     });
   }
 
-  return { gerar, MISTURAS };
+  return { gerar, preparar, MISTURAS };
 })();
