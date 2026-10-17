@@ -213,7 +213,7 @@ const App = (() => {
         <p class="muted">📅 ${quandoE(a.data)} · 📕 ${esc(l.titulo)}, páginas ${a.de} a ${a.ate}</p>
         <div class="progresso"><div style="width:${pct(estudadas, total)}%"></div></div>
         <p class="muted">${estudadas} de ${total} páginas estudadas. Estuda e testa página a página; no fim faz o teste global.</p>
-        <ol class="pag-lista">${pags.map(n => linhaPagina(a.livro, pagina(a.livro, n), a)).join('')}</ol>
+        ${listaPorLicao(a.livro, pags, a)}
         <div class="global">
           <div><b>Teste global</b><br><span class="muted">Todas as páginas deste teste (${a.de} a ${a.ate}), com perguntas de vários níveis.</span></div>
           <a class="btn prim grande" href="#/testar/${a.id}/global">🏁 Fazer teste global</a>
@@ -229,8 +229,30 @@ const App = (() => {
         <a href="#/d/${l.disciplina}" class="voltar">← ${esc(disciplinas[l.disciplina].nome)}</a>
         <h1>📕 ${esc(l.titulo)}</h1>
         <p class="muted">${esc(l.descricao || '')}. Aqui podes ler qualquer página. Para fazer testes, abre um dos testes da disciplina.</p>
-        <ol class="pag-lista">${l.paginas.map(pg => linhaPagina(lid, pg, null)).join('')}</ol>
+        ${listaPorLicao(lid, l.paginas.map(p => p.numero), null)}
       </section>`);
+  }
+
+  // As páginas aparecem agrupadas por lição (como os vídeos), com um botão para o vídeo da lição.
+  function listaPorLicao(lid, nums, a) {
+    const l = livros[lid];
+    const sufixo = a ? '/' + a.id : '';
+    const grupos = [];
+    for (const n of nums) {
+      const licao = l.licoes.find(x => x.paginas.includes(n));
+      const ultimo = grupos.at(-1);
+      if (ultimo && ultimo.licao === licao && licao) ultimo.nums.push(n);
+      else grupos.push({ licao, nums: [n] });
+    }
+    return grupos.map(g => {
+      const temVideo = g.licao && (g.licao.videoDrive || g.licao.videoDriveCurto);
+      const cabecalho = g.licao ? `
+        <div class="licao-topo">
+          <div><b>${esc(g.licao.titulo)}</b><br><span class="muted">Páginas ${g.licao.paginas[0]} a ${g.licao.paginas.at(-1)}</span></div>
+          ${temVideo ? `<a class="btn" href="#/estudar/${lid}/${g.nums[0]}${sufixo}">🎬 Ver vídeo</a>` : g.licao.video ? '<span class="chip">Vídeo em breve</span>' : ''}
+        </div>` : '';
+      return `<div class="licao">${cabecalho}<ol class="pag-lista">${g.nums.map(n => linhaPagina(lid, pagina(lid, n), a)).join('')}</ol></div>`;
+    }).join('');
   }
 
   // Os vídeos ficam no Google Drive do pai, partilhados com a conta Google da Leonor
