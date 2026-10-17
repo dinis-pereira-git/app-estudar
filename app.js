@@ -858,7 +858,18 @@ const App = (() => {
         ${dificeis.length ? `<ul class="rever">${dificeis.map(({ q, h }) => `<li><b>${esc(q.pergunta)}</b><br><span class="muted">Página ${q.pagina} · ${NIVEL[q.nivel]} · ${h.erradas} vez(es) errada ou com ajuda, ${h.certas} certa(s)</span></li>`).join('')}</ul>` : '<p class="muted">Ainda não há dados.</p>'}
 
         <p><button class="btn" id="exportar">⬇️ Guardar cópia do progresso</button></p>
+
+        <h2>Recomeçar do zero</h2>
+        <p class="muted">Apaga as páginas estudadas e todos os treinos e notas. Os testes da escola (datas e páginas) ficam.</p>
+        <label class="ponto"><input type="checkbox" id="apagar-tempos"> Apagar também os tempos de estudo</label>
+        <p><button class="btn perigo" id="recomecar">🗑️ Recomeçar do zero</button> <span id="msg-recomecar" class="muted"></span></p>
       </section>`);
+    document.getElementById('recomecar').onclick = async () => {
+      const tempos = document.getElementById('apagar-tempos').checked;
+      if (!confirm(`Apagar as páginas estudadas e todos os treinos${tempos ? ' e os tempos de estudo' : ''}? Isto não se pode desfazer.`)) return;
+      try { await A.apagarProgresso({ tempos }); atualizarRelogio(); ecraPainel(); }
+      catch (erro) { document.getElementById('msg-recomecar').textContent = 'Não foi possível apagar: ' + erro.message; }
+    };
     document.getElementById('exportar').onclick = A.exportar;
     $app.querySelectorAll('[data-pedido]').forEach(bt => bt.onclick = () => descarregarParaCorrecao(testeReal(bt.dataset.pedido)));
     const $correcao = document.getElementById('correcao');

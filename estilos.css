@@ -189,6 +189,8 @@ th { color: var(--muted); font-weight: 600; }
 .login input { font: inherit; font-size: 18px; padding: 10px 12px; border: 1px solid var(--linha); border-radius: 10px; color: var(--texto); }
 .login input:focus { outline: 2px solid var(--prim); border-color: transparent; }
 .erro { color: var(--mau); margin: 0; }
+.btn.perigo { border-color: var(--mau); color: var(--mau); }
+.btn.perigo:hover { background: var(--mau-fundo); }
 
 /* ampliar página */
 .ampliar { position: fixed; inset: 0; background: rgba(10, 15, 25, .85); z-index: 50; display: flex; justify-content: center; overflow: auto; padding: 20px; cursor: zoom-out; }

@@ -143,6 +143,22 @@ const Armazenamento = (() => {
       guardarLocal();
     },
 
+    // Recomeçar do zero: apaga páginas estudadas e treinos (e, se pedido, os tempos de estudo).
+    // Os testes da escola (avaliações) ficam.
+    async apagarProgresso({ tempos = false } = {}) {
+      if (db) {
+        const pedidos = [db.from('testes').delete().gte('id', 0), db.from('paginas_estudadas').delete().gte('pagina', 0)];
+        if (tempos) pedidos.push(db.from('tempo').delete().gte('segundos', 0));
+        const erro = (await Promise.all(pedidos)).find(r => r.error);
+        if (erro) throw erro.error;
+      }
+      estado.testes = [];
+      estado.historico = {};
+      for (const p of Object.values(estado.paginas)) { p.estudada = false; delete p.data; if (tempos) p.segundos = 0; }
+      if (tempos) { estado.tempoPorDia = {}; tempoPendente = {}; }
+      guardarLocal();
+    },
+
     exportar() {
       const blob = new Blob([JSON.stringify(estado, null, 2)], { type: 'application/json' });
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `progresso-${hoje()}.json` });
