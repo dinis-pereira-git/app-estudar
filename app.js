@@ -6,7 +6,7 @@ const App = (() => {
   const $sair = document.getElementById('sair');
   const A = Armazenamento;
   const { SUPABASE_URL, SUPABASE_KEY, BUCKET } = window.CONFIG;
-  const db = SUPABASE_URL ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  const db = SUPABASE_URL && SUPABASE_KEY ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
   const conteudos = {};      // id → { id, base, banco, url(ficheiro) }
   let contexto = null;       // { conteudo, pagina } enquanto estuda uma página (conta tempo por página)
