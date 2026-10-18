@@ -164,6 +164,19 @@ const App = (() => {
     const titulo = `${c.certas} de ${c.total} perguntas certas sem ajuda` + (prov ? `; mais ${c.pend} que ela deu como certas, à espera de revisão (sem elas: ${v}%)` : '') + (c.ajuda ? `; mais ${c.ajuda} só com ajuda` : '');
     return `<td class="cel-nivel ${corPct(prov ? vp : v)}${prov ? ' provisorio' : ''}" title="${titulo}">${prov ? vp : v}%${prov ? '<sup>✋</sup>' : ''}${c.ajuda ? (compacta ? '<sup>💡</sup>' : `<small> +${c.ajuda}💡</small>`) : ''}</td>`;
   }
+  // Coluna "Misto": melhor nota dos testes mistos da lição, por estilo (✍️ escola / ⚡ rápido).
+  // Usa a nota final; se só houver testes por rever, mostra a autoavaliação a roxo ✋.
+  function celulaMisto(lid, nums, estilo) {
+    const modo = estilo === 'escolha' ? 'rapido' : 'escola';
+    const ts = A.estado.testes.filter(t => t.livro === lid && t.dificuldade === 'misto' && t.modo === modo && t.tipo !== 'global'
+      && !testeAnulado(t) && nums.includes(t.pagina));
+    if (!ts.length) return '<td class="muted" title="Ainda não fizeste um teste misto desta lição neste estilo">—</td>';
+    const finais = ts.filter(t => t.percent != null).map(t => t.percent);
+    const provis = ts.filter(t => t.percent == null && t.autoPercent != null).map(t => t.autoPercent);
+    const v = finais.length ? Math.max(...finais) : Math.max(...provis);
+    const prov = !finais.length;
+    return `<td class="cel-nivel misto ${corPct(v)}${prov ? ' provisorio' : ''}" title="Melhor nota em ${ts.length} teste(s) misto(s)${prov ? ' — autoavaliação, à espera de revisão' : ''}">${v}%${prov ? '<sup>✋</sup>' : ''}</td>`;
+  }
   function celulaMedia(p, estilo) {
     const m = mediaEstilo(p, estilo), mp = mediaEstilo(p, estilo, true);
     if (m == null) return '<td class="muted">—</td>';
@@ -326,6 +339,7 @@ const App = (() => {
   }
 
   // ---------- correções (por disciplina e por teste da escola) ----------
+  // (a coluna Misto das tabelas usa celulaMisto, definida junto das células de progresso)
   // Depois da revisão, a Leonor vê, dentro de cada disciplina, o que não estava bem: a sua resposta, a nota que deu,
   // a nota final, o comentário e a resposta certa — e diz se concorda com a correção (e, se não, porquê).
   // amb = { did, aval }: disciplina e, opcionalmente, um teste da escola.
@@ -588,9 +602,9 @@ const App = (() => {
     const media = e => celulaMedia(p, e);
     return `
       <table class="mini-niveis" title="Perguntas certas sem ajuda, por estilo e nível">
-        <tr><th></th><th>★</th><th>★★</th><th>★★★</th><th>Média</th></tr>
-        <tr><th title="Respostas escritas (como na escola)">✍️</th>${[1, 2, 3].map(n => cel(p['escola' + n])).join('')}${media('escola')}</tr>
-        <tr><th title="Escolha múltipla">⚡</th>${[1, 2, 3].map(n => cel(p['escolha' + n])).join('')}${media('escolha')}</tr>
+        <tr><th></th><th>★</th><th>★★</th><th>★★★</th><th title="Melhor nota nos testes mistos desta lição">Misto</th><th>Média</th></tr>
+        <tr><th title="Respostas escritas (como na escola)">✍️</th>${[1, 2, 3].map(n => cel(p['escola' + n])).join('')}${celulaMisto(lid, nums, 'escola')}${media('escola')}</tr>
+        <tr><th title="Escolha múltipla">⚡</th>${[1, 2, 3].map(n => cel(p['escolha' + n])).join('')}${celulaMisto(lid, nums, 'escolha')}${media('escolha')}</tr>
       </table>`;
   }
 
@@ -662,7 +676,7 @@ const App = (() => {
 
   // Uma linha por lição (as páginas de um vídeo), com estudar e testar.
   const listaPorLicao = (lid, nums, a) => `
-    <p class="muted legenda-niveis">Tabelas: % das perguntas certas sem ajuda — ✍️ escrita, ⚡ escolha múltipla.
+    <p class="muted legenda-niveis">Tabelas: % das perguntas da lição já certas sem ajuda — ✍️ escrita, ⚡ escolha múltipla; <b>Misto</b> = melhor nota nos testes mistos.
       <span class="cel-nivel provisorio">roxo ✋</span> = inclui respostas que deste como certas e que ainda vão ser revistas · 💡 = há perguntas que só acertaste com ajuda.</p>
     <ol class="pag-lista">${gruposLicoes(lid, nums).map(g => linhaLicao(lid, g, a)).join('')}</ol>`;
 
@@ -1522,8 +1536,10 @@ const App = (() => {
     }).join('');
 
     const soma = linhas => Object.fromEntries(Object.keys(linhas[0] || {}).map(k => [k, linhas.reduce((s, x) => ({ total: s.total + x[k].total, certas: s.certas + x[k].certas, pend: s.pend + x[k].pend, ajuda: s.ajuda + x[k].ajuda }), { total: 0, certas: 0, pend: 0, ajuda: 0 })]));
-    const chaves = Object.keys(ESTILOS).flatMap(e => [1, 2, 3, 'M'].map(n => e + n));
-    const celulaOuMedia = (p, k) => k.endsWith('M') ? celulaMedia(p, k.slice(0, -1)) : celulaNivel(p[k]);
+    const chaves = Object.keys(ESTILOS).flatMap(e => [1, 2, 3, 'X', 'M'].map(n => e + n));
+    // X = coluna Misto (melhor nota dos testes mistos da lição); na linha do total não se aplica.
+    const celulaOuMedia = (p, k, lid, nums) => k.endsWith('M') ? celulaMedia(p, k.slice(0, -1))
+      : k.endsWith('X') ? (nums ? celulaMisto(lid, nums, k.slice(0, -1)) : '<td class="muted">—</td>') : celulaNivel(p[k]);
     const tabelasNiveis = Object.values(livros).map(l => {
       const linhas = gruposLicoes(l.id, l.paginas.map(p => p.numero)).map(g => ({ g, p: progressoNiveis(l.id, g.nums) }));
       const total = soma(linhas.map(x => x.p));
@@ -1531,11 +1547,11 @@ const App = (() => {
         <h3>${esc(disciplinas[l.disciplina].nome)} · ${esc(l.titulo)}</h3>
         <div class="tabela-larga"><table class="tabela-niveis">
           <thead>
-            <tr><th rowspan="2">Lição</th>${Object.values(ESTILOS).map(n => `<th colspan="4">${n}</th>`).join('')}</tr>
-            <tr>${chaves.map(k => `<th>${k.endsWith('M') ? 'Média' : NIVEL[k.slice(-1)]}</th>`).join('')}</tr>
+            <tr><th rowspan="2">Lição</th>${Object.values(ESTILOS).map(n => `<th colspan="5">${n}</th>`).join('')}</tr>
+            <tr>${chaves.map(k => `<th>${k.endsWith('M') ? 'Média' : k.endsWith('X') ? 'Misto' : NIVEL[k.slice(-1)]}</th>`).join('')}</tr>
           </thead>
           <tbody>
-            ${linhas.map(({ g, p }) => `<tr><td>${esc(g.licao?.titulo || pagina(l.id, g.nums[0]).titulo)} <small class="muted">(${intervalo(g.nums)})</small></td>${chaves.map(k => celulaOuMedia(p, k)).join('')}</tr>`).join('')}
+            ${linhas.map(({ g, p }) => `<tr><td>${esc(g.licao?.titulo || pagina(l.id, g.nums[0]).titulo)} <small class="muted">(${intervalo(g.nums)})</small></td>${chaves.map(k => celulaOuMedia(p, k, l.id, g.nums)).join('')}</tr>`).join('')}
             <tr class="total"><td><b>Total</b></td>${chaves.map(k => celulaOuMedia(total, k)).join('')}</tr>
           </tbody>
         </table></div>`;
