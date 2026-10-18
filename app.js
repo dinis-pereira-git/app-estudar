@@ -874,7 +874,7 @@ const App = (() => {
         <div class="a-tua"><b>A tua resposta:</b><br>${esc(r.texto) || '—'}</div>
         <div class="feedback ajuda">
           <h3>Compara com os pontos-chave</h3>
-          <p class="muted">Marca os pontos que a tua resposta tem, mesmo que escritos com outras palavras.</p>
+          <p class="muted">Marca os pontos que a tua resposta tem, mesmo que escritos com outras palavras.${e.minimo && e.minimo < e.pontos.length ? ` <b>Basta teres ${e.minimo} destes ${e.pontos.length} para a resposta estar completa.</b>` : ''}</p>
           ${e.pontos.map((p, i) => `<label class="ponto"><input type="checkbox" data-ponto="${i}"> ${esc(p)}</label>`).join('')}
           <p><b>Resposta modelo:</b> ${esc(e.modelo)}</p>
           <button class="btn prim" id="confirmar">Confirmar</button>
@@ -884,7 +884,7 @@ const App = (() => {
       corpo = `
         <div class="a-tua"><b>A tua resposta:</b><br>${esc(r.texto) || '—'}</div>
         <div class="feedback ${certa ? 'bom' : r.pontuacao > 0 ? 'ajuda' : 'mau'}">
-          <h3>${certa ? '🎉 Tinhas todos os pontos-chave!' : r.pontuacao > 0 ? `🙂 Tinhas ${r.marcados} de ${e.pontos.length} pontos-chave.` : '💪 Não faz mal, vamos ver onde está.'}</h3>
+          <h3>${certa ? (e.minimo && e.minimo < e.pontos.length ? `🎉 Tinhas os ${e.minimo} pontos-chave pedidos!` : '🎉 Tinhas todos os pontos-chave!') : r.pontuacao > 0 ? `🙂 Tinhas ${r.marcados} de ${Math.min(e.minimo || e.pontos.length, e.pontos.length)} pontos-chave.` : '💪 Não faz mal, vamos ver onde está.'}</h3>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
           ${botaoSeguinte()}
@@ -918,7 +918,9 @@ const App = (() => {
       // Guarda quais os pontos-chave que ela marcou, para o pai poder rever a autoavaliação.
       const pontosMarcados = [...$app.querySelectorAll('[data-ponto]:checked')].map(c => +c.dataset.ponto);
       const marcados = pontosMarcados.length;
-      Object.assign(r, { marcados, pontosMarcados, pontuacao: marcados / e.pontos.length, confirmada: true, autoavaliada: true });
+      // "Indica pelo menos N…": N pontos já valem 100% (escrita.minimo); senão, todos os pontos-chave.
+      const precisa = Math.min(e.minimo || e.pontos.length, e.pontos.length);
+      Object.assign(r, { marcados, pontosMarcados, pontuacao: Math.min(1, marcados / precisa), confirmada: true, autoavaliada: true });
       r.certa = r.pontuacao === 1;
       ecraPergunta();
     });
