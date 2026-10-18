@@ -1821,6 +1821,18 @@ const App = (() => {
     addEventListener('hashchange', rota);
     atualizarRelogio();
     rota();
+    // De minuto a minuto (e ao voltar à janela), vai buscar testes novos e correções ao servidor.
+    // Não mexe no ecrã durante um teste nem enquanto se está a escrever.
+    const atualizar = async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (/^#\/(teste|resultado|gerir)/.test(location.hash)) return;
+      if (document.activeElement?.matches?.('textarea, input')) return;
+      try {
+        if (await A.atualizarTestes()) { const y = scrollY; rota(); scrollTo(0, y); }
+      } catch {}
+    };
+    setInterval(atualizar, 60000);
+    addEventListener('visibilitychange', atualizar);
   }
 
   iniciar();

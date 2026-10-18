@@ -239,5 +239,23 @@ const Armazenamento = (() => {
     },
 
     enviarTempo,
+
+    // Vai buscar outra vez os testes ao servidor (para ver testes feitos noutro computador e correções novas,
+    // sem ser preciso F5). Devolve true se alguma coisa mudou.
+    async atualizarTestes() {
+      if (!db) return false;
+      const { data, error } = await db.from('testes').select('registo').order('data');
+      if (error) { avisar(error); return false; }
+      const servidor = data.map(r => normalizarTeste(r.registo));
+      const ids = new Set(servidor.map(t => String(t.id)));
+      const locais = lerPendentes().filter(t => !ids.has(String(t.id)));
+      const novos = [...servidor, ...locais].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      const assinatura = l => JSON.stringify(l.map(t => [t.id, t.estado, t.percent, t.respostas.map(r => [r.pontuacao, r.reacao?.concorda ?? null, r.respostaRevisao || ''])]));
+      if (assinatura(novos) === assinatura(estado.testes)) return false;
+      estado.testes = novos;
+      estado.historico = {};
+      estado.testes.forEach(contarNoHistorico);
+      return true;
+    },
   };
 })();
