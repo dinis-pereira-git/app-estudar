@@ -1804,7 +1804,7 @@ const App = (() => {
       const $avisoGravar = document.getElementById('aviso-gravar');
       A.aoMudarPendentes = n => {
         $avisoGravar.hidden = !n;
-        $avisoGravar.innerHTML = n ? `⚠️ ${n} teste(s) ainda não foram gravados no servidor (ficaram guardados neste computador). <b>Não limpes o browser.</b> A app vai tentar outra vez. <button class="btn mini" id="tentar-gravar">Tentar agora</button>` : '';
+        $avisoGravar.innerHTML = n ? `⚠️ ${n} teste(s) ainda não foram gravados no servidor (ficaram guardados neste computador). <b>Não limpes o browser.</b> A app vai tentar outra vez. <button class="btn mini" id="tentar-gravar">Tentar agora</button>${A.ultimoErro ? `<br><small>Erro: ${esc(A.ultimoErro)}</small>` : ''}` : '';
         document.getElementById('tentar-gravar')?.addEventListener('click', () => A.reenviarPendentes());
       };
       await A.iniciar(db);

@@ -14,7 +14,8 @@ const Armazenamento = (() => {
   const hoje = () => new Date().toLocaleDateString('sv'); // AAAA-MM-DD
   const livroId = id => ALIAS[id] || id;
   const guardarLocal = () => { if (!db) try { localStorage.setItem(CHAVE, JSON.stringify(estado)); } catch {} };
-  const avisar = erro => { if (erro) console.error('Erro a guardar no Supabase:', erro.message || erro); };
+  let ultimoErro = ''; // mostrado no aviso amarelo, para se perceber porque não gravou
+  const avisar = erro => { if (erro) { ultimoErro = String(erro.message || erro); console.error('Erro a guardar no Supabase:', ultimoErro); } };
 
   // Testes que não se conseguiram gravar online ficam guardados neste computador e são reenviados
   // (ao abrir a app e de minuto a minuto), para nunca se perder um teste. A app mostra um aviso enquanto houver.
@@ -150,6 +151,7 @@ const Armazenamento = (() => {
 
     // Quantos testes estão por enviar, e aviso quando isso muda (para a app mostrar um alerta).
     get testesPorEnviar() { return lerPendentes().length; },
+    get ultimoErro() { return ultimoErro; },
     set aoMudarPendentes(f) { aoMudarPendentes = f; },
     reenviarPendentes,
 
