@@ -12,6 +12,7 @@ const App = (() => {
   const forcarLocal = new URLSearchParams(location.search).has('local');
   const db = SUPABASE_URL && SUPABASE_KEY && !forcarLocal ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
   let contaAtual = ''; // email da conta com que se entrou (mostrado no painel)
+  let filtroPainel = 'todos'; // filtro da tabela das correções no painel
 
   const disciplinas = {};    // id → { id, nome, nomeCompleto, icone, livros: [ids] }
   const livros = {};         // id → { id, titulo, descricao, disciplina, paginas, perguntas, url(ficheiro) }
@@ -438,7 +439,9 @@ const App = (() => {
       <div class="cartao-revisao item-correcao">
         <div class="seccao-topo"><span class="muted">${comTeste ? `${esc(nomeTreino(t))} · ${dataCurta(t.data)}` : `${NIVEL[r.nivel] || ''}`}</span>${r.ajuda ? '<span class="chip aviso">💡 com ajuda</span>' : ''}</div>
         <p><b>${esc(r.pergunta || q?.pergunta || '')}</b></p>
-        <div class="a-tua"><b>${editavel ? 'A tua resposta' : 'Resposta dela'}:</b> ${esc(resposta) || '<i>em branco</i>'}</div>
+        ${r.modo === 'escolha'
+          ? `<div class="a-tua"><b>Escolha múltipla:</b> ${r.certa ? '✅ acertou' : '❌ errou'}${r.ajuda ? ' (com ajuda)' : ''}${!r.certa && modelo ? ` — a certa era «${esc(modelo)}»` : ''}</div>`
+          : `<div class="a-tua"><b>${editavel ? 'A tua resposta' : 'Resposta dela'}:</b> ${esc(resposta) || '<i>em branco</i>'}</div>`}
         <div class="notas-comparar">
           ${r.pontuacaoAuto != null ? `<span>✋ ${editavel ? 'Tu deste' : 'Ela deu'} <b>${pctTxt(r.pontuacaoAuto)}</b></span><span class="seta">→</span>` : ''}
           <span class="nota-final ${r.pontuacao === 1 ? 'bom' : r.pontuacao > 0 ? 'medio' : 'mau'}">Nota final <b>${pctTxt(r.pontuacao)}</b></span>
@@ -1481,7 +1484,20 @@ const App = (() => {
     const maxDia = Math.max(60, ...dias.map(d => e.tempoPorDia[d] || 0));
     const comNota = e.testes.filter(t => t.percent != null);
     const media = comNota.length ? Math.round(comNota.reduce((s, t) => s + t.percent, 0) / comNota.length) : null;
-    const reais = e.testes.filter(corrigivel).reverse();
+    // Tabela das correções: TODOS os testes (os de escolha múltipla são corrigidos automaticamente), com filtros.
+    const FILTROS_PAINEL = {
+      todos: { nome: 'Todos', f: () => true },
+      rever: { nome: '⏳ Por rever', f: porCorrigir },
+      escola: { nome: '✍️ Escola', f: t => t.modo === 'escola' || t.modo === 'real' },
+      escolha: { nome: '⚡ Escolha múltipla', f: t => t.modo === 'rapido' },
+    };
+    if (!FILTROS_PAINEL[filtroPainel]) filtroPainel = 'todos';
+    const todosTestes = [...e.testes].reverse();
+    const reais = todosTestes.filter(FILTROS_PAINEL[filtroPainel].f);
+    const tipoTeste = t => t.modo === 'real' ? '🎓 Teste real' : t.modo === 'escola' ? '✍️ Escola' : '⚡ Escolha múltipla';
+    const estadoTeste = t => t.modo === 'rapido' ? '<span class="chip ok">Automática</span>'
+      : t.estado === 'corrigido' ? '<span class="chip ok">Corrigido</span>'
+      : porCorrigir(t) ? `<span class="chip aviso">${t.modo === 'real' ? 'Por corrigir' : 'Por rever'}</span>` : '<span class="chip">Feito</span>';
     const perguntasTodas = perguntasPorId();
     const pendentes = reais.filter(porCorrigir);
 
@@ -1603,14 +1619,15 @@ const App = (() => {
         ${testesEscola || '<p class="muted">Ainda não há testes marcados.</p>'}
 
         <h2>📝 Correções (notas finais)</h2>
-        ${reais.length ? `
+        ${todosTestes.length ? `
           <p>${pendentes.length ? `<b>${pendentes.length} teste(s) à espera de revisão.</b> <button class="btn prim" id="pedido-todos">⬇️ Descarregar todos para correção</button>` : '✅ Não há testes por corrigir.'}</p>
+          <div class="filtros-correcao">${Object.entries(FILTROS_PAINEL).map(([k, f]) => `<button class="filtro ${k === filtroPainel ? 'ativo' : ''}" data-filtro-painel="${k}">${f.nome} <span class="contagem">${todosTestes.filter(f.f).length}</span></button>`).join('')}</div>
           <div class="tabela-larga"><table>
           <thead><tr><th>Data</th><th>Teste</th><th>Treino</th><th>Nível</th><th>Estado</th><th>✋ Autoavaliação</th><th>Nota final</th><th></th></tr></thead>
           <tbody>${reais.map(t => `<tr><td>${dataCurta(t.data)}</td><td>${esc(t.avaliacaoNome)}</td>
-            <td>${t.modo === 'real' ? '🎓 Teste real' : '✍️ Escola'} · ${nomeTreino(t)}</td>
+            <td>${tipoTeste(t)} · ${nomeTreino(t)}</td>
             <td>${DIFICULDADES[t.dificuldade]?.estrelas || ''} ${DIFICULDADES[t.dificuldade]?.nome || '—'}${t.exato ? ' 🎯' : ''}</td>
-            <td>${t.estado === 'corrigido' ? '<span class="chip ok">Corrigido</span>' : `<span class="chip aviso">${t.modo === 'real' ? 'Por corrigir' : 'Por rever'}</span>`}</td>
+            <td>${estadoTeste(t)}</td>
             <td>${t.autoPercent != null ? `${t.autoPercent}%` : '—'}</td>
             <td>${t.percent != null ? `<b>${t.percent}%</b>` : '⏳'}</td>
             <td class="acoes-tabela"><button class="btn" data-abrir="${t.id}">▸ Respostas${t.respostas.some(r => r.reacao?.concorda === false) ? ' 💬' : ''}</button>
@@ -1635,7 +1652,7 @@ const App = (() => {
           <p class="muted">As notas finais aparecem aqui depois da revisão das respostas, que também confirma (ou não) as autoavaliações dela.
             Em alternativa: descarrega o pedido de correção e, depois, carrega aqui o ficheiro da correção.</p>
           <p><label class="btn">📥 Carregar correção<input type="file" id="correcao" accept=".json,application/json" hidden></label> <span id="msg-correcao" class="muted"></span></p>`
-        : '<p class="muted">Ainda não há testes para corrigir. Os testes "✍️ Como no teste da escola" e "🎓 Teste real" aparecem aqui.</p>'}
+        : '<p class="muted">Ainda não há testes.</p>'}
 
         <h2>🔍 Autoavaliações</h2>
         ${(() => {
@@ -1706,6 +1723,10 @@ const App = (() => {
       } catch (erro) { $m.textContent = 'Não foi possível juntar: ' + erro.message; }
     };
     $app.querySelectorAll('[data-pedido]').forEach(bt => bt.onclick = () => descarregarParaCorrecao([testeReal(bt.dataset.pedido)]));
+    $app.querySelectorAll('[data-filtro-painel]').forEach(bt => bt.onclick = () => {
+      filtroPainel = bt.dataset.filtroPainel;
+      const y = scrollY; ecraPainel(); scrollTo(0, y);
+    });
     // Abrir/fechar as respostas de um teste na tabela das correções (com as reações da Leonor).
     $app.querySelectorAll('[data-abrir]').forEach(bt => bt.onclick = () => {
       const det = document.getElementById('det-' + bt.dataset.abrir);
