@@ -87,7 +87,7 @@ const App = (() => {
   const testeAnulado = t => REPOSICOES.some(x => t.data < x.ate && x.estilo === 'escolha' && t.modo === 'rapido' && NIVEL_DE[t.dificuldade] === x.nivel);
 
   // Conta também os testes antigos, que eram por página.
-  const melhorNotaLicao = (lid, nums) => melhorNota(t => t.livro === lid && t.tipo !== 'global' && !testeAnulado(t) && nums.includes(t.pagina));
+  const melhorNotaLicao = (lid, nums) => melhorNota(t => t.livro === lid && t.tipo !== 'global' && t.foco !== 'falta' && !testeAnulado(t) && nums.includes(t.pagina));
 
   // Progressão por níveis: um nível da lição fica "dominado" com 80% ou mais num teste desse nível.
   // A app sugere o nível seguinte (aconselha, não obriga).
@@ -95,7 +95,7 @@ const App = (() => {
   const NIVEL_DE = { facil: 1, medio: 2, dificil: 3 };
   const DIF_DE = { 1: 'facil', 2: 'medio', 3: 'dificil' };
   function nivelDominado(lid, nums) {
-    return A.estado.testes.reduce((max, t) => t.livro === lid && t.tipo !== 'global' && !testeAnulado(t) && nums.includes(t.pagina)
+    return A.estado.testes.reduce((max, t) => t.livro === lid && t.tipo !== 'global' && t.foco !== 'falta' && !testeAnulado(t) && nums.includes(t.pagina)
       && t.percent >= DOMINIO && NIVEL_DE[t.dificuldade] > max ? NIVEL_DE[t.dificuldade] : max, 0);
   }
   // Progresso de um teste da escola: lições estudadas, níveis dominados e, ao ritmo atual,
@@ -135,10 +135,11 @@ const App = (() => {
     const certas = novo(), ajuda = novo(), pend = novo();
     // Num teste ainda por rever, as respostas que ela própria se deu como certas ficam "provisórias" (pend):
     // aparecem com outra cor até a revisão as confirmar.
-    A.estado.testes.forEach(t => t.livro === lid && !porCorrigir(t) && t.respostas.forEach(r => {
+    // O treino "só estas" (foco 'falta') não conta: só conta acertar num teste normal ou misto.
+    A.estado.testes.forEach(t => t.livro === lid && t.foco !== 'falta' && !porCorrigir(t) && t.respostas.forEach(r => {
       if (r.certa && r.auditoria !== 'mal' && !anulada(t, r)) (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
     }));
-    A.estado.testes.forEach(t => t.livro === lid && t.modo === 'escola' && porCorrigir(t) && t.respostas.forEach(r => {
+    A.estado.testes.forEach(t => t.livro === lid && t.foco !== 'falta' && t.modo === 'escola' && porCorrigir(t) && t.respostas.forEach(r => {
       if (!r.certa) return;
       const auto = autoavaliadas({ respostas: [r] }).length;
       (r.ajuda ? ajuda : auto ? pend : certas)[estiloDe(r)].add(r.id);
@@ -170,7 +171,7 @@ const App = (() => {
   function celulaMisto(lid, nums, estilo) {
     const modo = estilo === 'escolha' ? 'rapido' : 'escola';
     const ts = A.estado.testes.filter(t => t.livro === lid && t.dificuldade === 'misto' && t.modo === modo && t.tipo !== 'global'
-      && !testeAnulado(t) && nums.includes(t.pagina));
+      && t.foco !== 'falta' && !testeAnulado(t) && nums.includes(t.pagina));
     if (!ts.length) return '<td class="muted" title="Ainda não fizeste um teste misto desta lição neste estilo">—</td>';
     const finais = ts.filter(t => t.percent != null).map(t => t.percent);
     const provis = ts.filter(t => t.percent == null && t.autoPercent != null).map(t => t.autoPercent);
@@ -194,6 +195,7 @@ const App = (() => {
     for (const t of A.estado.testes) {
       if (t.modo === 'real' && t.estado !== 'corrigido') continue;
       if (ate && t.data > ate) continue;
+      if (t.foco === 'falta') continue; // treino "só estas": prática, não conta como tentativa
       for (const r of t.respostas) {
         if (porCorrigir(t) && autoavaliadas({ respostas: [r] }).length) continue;
         if (anulada(t, r)) continue;
@@ -620,25 +622,51 @@ const App = (() => {
 
   // ---------- o que falta numa lição ----------
   // Perguntas da lição (num estilo e nível) que ela ainda não acertou sem ajuda: nunca lhe saíram, errou, ou só com ajuda.
+  // Regras do pai: (1) "o que falta" só abre depois de 2 testes normais desse nível/estilo na lição — ela tem de tentar
+  // primeiro com perguntas misturadas; (2) o treino "só estas" (foco: 'falta') é prática: não enche a tabela; uma pergunta
+  // só conta como sabida quando a acerta depois num teste normal ou misto.
+  const TESTES_PARA_VER_FALTA = 2;
   let faltaAberta = null; // { n: 1.ª página da lição, estilo: 'escola'|'escolha', nivel: 1|2|3|'todos' }
+  function testesNormaisFeitos(lid, nums, estilo, nivel) {
+    const modo = estilo === 'escolha' ? 'rapido' : 'escola';
+    return A.estado.testes.filter(t => t.livro === lid && t.modo === modo && t.foco !== 'falta' && t.tipo === 'licao'
+      && nums.includes(t.pagina) && (nivel === 'todos' || t.dificuldade === DIF_DE[nivel] || t.dificuldade === 'misto')).length;
+  }
   function perguntasEmFalta(lid, nums, estilo, nivel) {
     const tent = tentativasPorPergunta();
+    // Perguntas acertadas no treino "só estas" (ainda por confirmar num teste normal).
+    const treinadas = new Set(A.estado.testes.filter(t => t.foco === 'falta' && t.livro === lid).flatMap(t => t.respostas)
+      .filter(r => r.certa && !r.ajuda && estiloDe(r) === estilo).map(r => r.id));
     return livros[lid].perguntas
       .filter(q => nums.includes(q.pagina) && (nivel === 'todos' || q.nivel === +nivel) && (estilo === 'escolha' ? q.opcoes : q.escrita))
       .map(q => {
         const ts = (tent[q.id] || []).filter(x => x.estilo === estilo);
         if (ts.some(x => x.boa)) return null;
-        return { q, estado: !ts.length ? 'nunca' : ts.some(x => x.ajuda) && ts.every(x => x.ajuda) ? 'ajuda' : 'errou', vezes: ts.length };
+        const estado = treinadas.has(q.id) ? 'treinada' : !ts.length ? 'nunca' : ts.every(x => x.ajuda) ? 'ajuda' : 'errou';
+        return { q, estado, vezes: ts.length };
       }).filter(Boolean);
   }
-  const ESTADO_FALTA = { nunca: '⚪ Ainda não te saiu', errou: '❌ Erraste', ajuda: '💡 Só com ajuda' };
+  const ESTADO_FALTA = { nunca: '⚪ Ainda não te saiu', errou: '❌ Erraste', ajuda: '💡 Só com ajuda', treinada: '✅ Treinada — confirma num teste normal' };
   function blocoFalta(lid, nums, a, f) {
-    const lista = perguntasEmFalta(lid, nums, f.estilo, f.nivel);
     const nomeNivel = f.nivel === 'todos' ? 'todos os níveis' : `nível ${NIVEL[f.nivel]}`;
     const nomeEstilo = f.estilo === 'escolha' ? '⚡ escolha múltipla' : '✍️ escrita';
+    const feitos = testesNormaisFeitos(lid, nums, f.estilo, f.nivel);
+    if (feitos < TESTES_PARA_VER_FALTA) {
+      const faltam = TESTES_PARA_VER_FALTA - feitos;
+      return `
+        <li class="falta-linha" id="falta-aberta">
+          <div class="seccao-topo"><b>🔒 O que falta · ${nomeEstilo} · ${nomeNivel}</b><a class="btn mini" href="#/t/${a.id}">Fechar</a></div>
+          <p>Primeiro tenta sozinha: faz mais <b>${faltam} teste${faltam > 1 ? 's' : ''}</b> ${f.nivel === 'todos' ? '' : NIVEL[f.nivel] + ' '}em ${nomeEstilo} desta lição.
+            Depois disso, aqui vais ver as perguntas que ainda te faltam.</p>
+          <a class="btn prim" href="#/testar/${a.id}/${nums[0]}">✏️ Fazer um teste desta lição</a>
+        </li>`;
+    }
+    const lista = perguntasEmFalta(lid, nums, f.estilo, f.nivel);
+    const porConfirmar = lista.filter(x => x.estado === 'treinada').length;
     return `
       <li class="falta-linha" id="falta-aberta">
         <div class="seccao-topo"><b>🧩 O que falta · ${nomeEstilo} · ${nomeNivel}</b><a class="btn mini" href="#/t/${a.id}">Fechar</a></div>
+        ${porConfirmar ? `<p class="muted">As ✅ treinadas só passam a contar quando as acertares num teste normal ou misto desta lição.</p>` : ''}
         ${lista.length ? `
           <ol class="lista-falta">${lista.map(x => `<li>${esc(f.estilo === 'escola' ? x.q.escrita.pergunta || x.q.pergunta : x.q.pergunta)}
             <small class="muted">${ESTADO_FALTA[x.estado]}${f.nivel === 'todos' ? ` · ${NIVEL[x.q.nivel]}` : ''} · pág. ${x.q.pagina}</small></li>`).join('')}</ol>
