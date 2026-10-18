@@ -285,10 +285,11 @@ const App = (() => {
       const doPai = ecra === 'painel' || ecra === 'revisao';
       el.classList.toggle('ativo', alvo === 'painel' ? doPai : !doPai);
     });
+    if (ecra === 'd' && disciplinas[a] && b === 'correcoes') return ecraCorrecoes(c, { did: a });
     if (ecra === 'd' && disciplinas[a]) return ecraDisciplina(a);
     if (ecra === 'l' && livros[a]) return ecraLivro(a);
     if (ecra === 't' && avaliacao(a)?.livroInteiro) return ecraLivro(avaliacao(a).livro);
-    if (ecra === 't' && avaliacao(a)) return ecraAvaliacao(avaliacao(a));
+    if (ecra === 't' && avaliacao(a)) return ecraAvaliacao(avaliacao(a), b === 'correcoes' ? (c || '') : null);
     if (ecra === 'estudar' && livros[a]) return ecraEstudar(a, +b, c && avaliacao(c));
     if (ecra === 'testar' && avaliacao(a) && b === 'custam') return ecraCustam(avaliacao(a));
     if (ecra === 'testar' && avaliacao(a)) return ecraDificuldade(avaliacao(a), b === 'global' ? null : +b);
@@ -298,7 +299,7 @@ const App = (() => {
     if (ecra === 'real' && testeReal(a)) return ecraTesteReal(testeReal(a));
     if (ecra === 'painel') return ecraPainel();
     if (ecra === 'revisao') return ecraRevisao(a === 'todas');
-    if (ecra === 'correcoes') return ecraCorrecoes(a);
+    if (ecra === 'correcoes') { location.hash = linkAvisoCorrecoes(Object.keys(disciplinas)[0], a); return; } // endereço antigo
     ecraCapa();
   }
 
@@ -323,53 +324,91 @@ const App = (() => {
       </section>`);
   }
 
-  // ---------- correções para a Leonor ver ----------
-  // Depois da revisão, ela vê o que não estava bem: a sua resposta, a nota, o comentário e a resposta modelo.
-  const corrigidos = () => A.estado.testes.filter(t => corrigivel(t) && t.estado === 'corrigido').reverse();
+  // ---------- correções (por disciplina e por teste da escola) ----------
+  // Depois da revisão, a Leonor vê, dentro de cada disciplina, o que não estava bem: a sua resposta, a nota que deu,
+  // a nota final, o comentário e a resposta certa — e diz se concorda com a correção (e, se não, porquê).
+  // amb = { did, aval }: disciplina e, opcionalmente, um teste da escola.
+  const disciplinaDe = t => t.disciplina || livros[t.livro]?.disciplina;
+  // Num teste da escola entram os treinos feitos nele e os treinos do livro dessas mesmas páginas.
+  function noAmbito(t, amb = {}) {
+    if (amb.did && disciplinaDe(t) !== amb.did) return false;
+    if (!amb.aval) return true;
+    if (String(t.avaliacao) === String(amb.aval)) return true;
+    const a = avaliacao(amb.aval);
+    const pags = t.licao || (t.pagina != null ? [t.pagina] : t.paginas || []);
+    return !!a && String(t.avaliacao).startsWith('L-') && t.livro === a.livro && pags.length > 0 && pags.every(p => p >= a.de && p <= a.ate);
+  }
+  const corrigidos = amb => A.estado.testes.filter(t => corrigivel(t) && t.estado === 'corrigido' && noAmbito(t, amb)).reverse();
+  const pendentesRevisao = amb => A.estado.testes.filter(t => porCorrigir(t) && noAmbito(t, amb)).reverse();
   const porMelhorar = t => t.respostas.filter(r => r.pontuacao < 1 || r.ajuda);
   // Respostas corrigidas que interessam à Leonor: não estavam a 100%, tiveram ajuda, ou a nota final é diferente da dela.
   const notaDiferente = r => r.pontuacaoAuto != null && Math.abs(r.pontuacaoAuto - (r.pontuacao || 0)) > 0.001;
-  const itensCorrecao = () => corrigidos().flatMap(t => t.respostas.filter(r => r.pontuacao < 1 || r.ajuda || notaDiferente(r)).map(r => ({ t, r })));
+  const itensCorrecao = amb => corrigidos(amb).flatMap(t => t.respostas.filter(r => r.pontuacao < 1 || r.ajuda || notaDiferente(r)).map(r => ({ t, r })));
   const FILTROS_CORRECAO = {
     rever: { nome: '🔎 Para rever', desc: 'A nota final é diferente da que deste e ainda não disseste se concordas.', f: ({ r }) => notaDiferente(r) && !r.reacao },
     mal: { nome: '❌ Não estavam bem', desc: 'Todas as respostas que não ficaram com 100% (ou em que usaste ajuda).', f: ({ r }) => r.pontuacao < 1 || r.ajuda },
     contestei: { nome: '💬 Que contestei', desc: 'As correções com que não concordaste, e a resposta da revisão.', f: ({ r }) => r.reacao?.concorda === false },
     testes: { nome: '📋 Por teste', desc: 'Nota final de cada teste revisto.' },
   };
-  function avisoCorrecoes() {
-    const novos = corrigidos().filter(t => !t.correcao?.vista);
-    const paraRever = itensCorrecao().filter(FILTROS_CORRECAO.rever.f).length;
-    const pendentes = A.estado.testes.filter(porCorrigir).length;
-    if (!novos.length && !paraRever && !pendentes) return '';
+  const linkCorrecoes = (amb, filtro = '') => `#/d/${amb.did}/correcoes/${filtro}`;
+  // A Leonor prefere ver as correções dentro do teste da escola (ex.: "1.º Período · 1.º Teste"):
+  // leva ao teste da escola com correções (primeiro o que tem respostas para ela ver); senão, às da disciplina.
+  function linkAvisoCorrecoes(did, filtro = '') {
+    const comCorr = avaliacoesDe(did).filter(a => corrigidos({ did, aval: a.id }).length || pendentesRevisao({ did, aval: a.id }).length);
+    const a = comCorr.find(a => itensCorrecao({ did, aval: a.id }).some(FILTROS_CORRECAO.rever.f)) || comCorr[0];
+    return a ? `#/t/${a.id}/correcoes/${filtro}` : linkCorrecoes({ did }, filtro);
+  }
+  const pctTxt = v => `${Math.round((v || 0) * 100)}%`;
+  const perguntasPorId = () => Object.fromEntries(Object.values(livros).flatMap(l => l.perguntas).map(q => [q.id, q]));
+
+  // Resumo para a página da disciplina e de cada teste da escola.
+  function blocoCorrecoes(amb) {
+    const itens = itensCorrecao(amb), testes = corrigidos(amb), pend = pendentesRevisao(amb);
+    if (!testes.length && !pend.length) return '';
+    const n = k => itens.filter(FILTROS_CORRECAO[k].f).length;
+    const novos = testes.filter(t => !t.correcao?.vista).length;
     return `
-      <div class="cartao aviso-correcoes">
-        ${novos.length || paraRever ? `<div><b>📝 ${novos.length ? (novos.length === 1 ? 'Um teste teu já foi revisto!' : `${novos.length} testes teus já foram revistos!`) : 'Tens correções para ver.'}</b>
-          <span class="muted">${paraRever ? `${paraRever} resposta(s) em que a nota final é diferente da tua — diz se concordas.` : 'Vê a nota final e o que ainda não estava bem.'}</span></div>
-          <a class="btn prim" href="#/correcoes">Ver correções</a>` : `<span class="muted">⏳ ${pendentes} teste(s) à espera de revisão.</span> <a class="btn" href="#/correcoes">Ver</a>`}
+      <div class="global bloco-correcoes ${n('rever') ? 'destaque' : ''}">
+        <div><b>📝 Correções</b> ${novos ? `<span class="chip ok">${novos} nova(s)</span>` : ''}<br>
+          <span class="muted">${testes.length} teste(s) revisto(s)${pend.length ? ` · ⏳ ${pend.length} à espera de revisão` : ''}${n('rever') ? ` · <b>${n('rever')} resposta(s) com nota diferente da tua para veres</b>` : ''}${n('contestei') ? ` · ${n('contestei')} contestada(s)` : ''}</span></div>
+        ${testes.length ? `<a class="btn ${n('rever') ? 'prim' : ''} grande" href="${linkAvisoCorrecoes(amb.did)}">Ver correções</a>` : ''}
       </div>`;
   }
 
-  function ecraCorrecoes(filtro) {
-    const itens = itensCorrecao();
-    const contagem = k => FILTROS_CORRECAO[k].f ? itens.filter(FILTROS_CORRECAO[k].f).length : corrigidos().length;
-    if (!FILTROS_CORRECAO[filtro]) filtro = contagem('rever') ? 'rever' : contagem('mal') ? 'mal' : 'testes';
-    const lista = corrigidos();
-    const pend = A.estado.testes.filter(porCorrigir).reverse();
-    const perguntaPorId = Object.fromEntries(Object.values(livros).flatMap(l => l.perguntas).map(q => [q.id, q]));
-    const pctTxt = v => `${Math.round((v || 0) * 100)}%`;
+  // Aviso na página inicial: por disciplina, leva às correções dessa disciplina.
+  function avisoCorrecoes() {
+    return Object.values(disciplinas).map(d => {
+      const amb = { did: d.id };
+      const novos = corrigidos(amb).filter(t => !t.correcao?.vista).length;
+      const paraRever = itensCorrecao(amb).filter(FILTROS_CORRECAO.rever.f).length;
+      if (!novos && !paraRever) return '';
+      return `
+        <div class="cartao aviso-correcoes">
+          <div><b>📝 ${esc(d.nome)}: ${novos ? (novos === 1 ? 'um teste teu já foi revisto!' : `${novos} testes teus já foram revistos!`) : 'tens correções para ver.'}</b>
+            <span class="muted">${paraRever ? `${paraRever} resposta(s) em que a nota final é diferente da tua — diz se concordas.` : 'Vê a nota final e o que ainda não estava bem.'}</span></div>
+          <a class="btn prim" href="${linkAvisoCorrecoes(amb.did)}">Ver correções</a>
+        </div>`;
+    }).join('');
+  }
 
-    // Uma resposta corrigida, com a reação da Leonor (concordo / não concordo + comentário).
-    const cartaoResposta = ({ t, r }, i) => {
-      const q = perguntaPorId[r.id];
-      const modelo = q?.escrita?.modelo || (q?.opcoes ? q.opcoes[q.correta] : '');
-      const re = r.reacao;
-      const reacaoHtml = re && !re.editar ? `
+  // Uma resposta corrigida. editavel = a Leonor pode dizer se concorda; senão (painel do pai) só mostra a reação dela.
+  function cartaoRespostaCorrecao({ t, r }, i, perg, editavel, comTeste = true) {
+    const q = perg[r.id];
+    const modelo = q?.escrita?.modelo || (q?.opcoes ? q.opcoes[q.correta] : '');
+    const re = r.reacao;
+    let reacaoHtml = '';
+    if (!editavel) {
+      reacaoHtml = notaDiferente(r) || re ? `<div class="reacao-feita ${re ? (re.concorda ? 'ok' : 'nao') : ''}">${re ? (re.concorda ? '👍 A Leonor concordou com a correção.' : `👎 A Leonor não concordou: «${esc(re.comentario || '')}»${r.respostaRevisao ? '' : ' — à espera de resposta.'}`) : '<span class="muted">A Leonor ainda não disse se concorda.</span>'}</div>` : '';
+    } else if (re && !re.editar) {
+      reacaoHtml = `
         <div class="reacao-feita ${re.concorda ? 'ok' : 'nao'}">
           ${re.concorda ? '👍 Concordaste com a correção.' : `👎 Não concordaste: «${esc(re.comentario || '')}»`}
-          ${!re.concorda ? (r.respostaRevisao ? '' : ' <span class="muted">— à espera de resposta da revisão.</span>') : ''}
+          ${!re.concorda && !r.respostaRevisao ? ' <span class="muted">— à espera de resposta da revisão.</span>' : ''}
           <button class="btn mini" data-mudar="${i}">Mudar</button>
-        </div>` : `
-        <div class="reacao" data-reacao="${i}">
+        </div>`;
+    } else if (notaDiferente(r) || re) {
+      reacaoHtml = `
+        <div class="reacao">
           <span>Concordas com esta correção?</span>
           <button class="btn" data-concordo="${i}">👍 Concordo</button>
           <button class="btn" data-discordo="${i}">👎 Não concordo</button>
@@ -378,88 +417,97 @@ const App = (() => {
             <button class="btn prim" data-enviar="${i}">Enviar</button>
           </div>
         </div>`;
-      return `
-        <div class="cartao-revisao item-correcao">
-          <div class="seccao-topo"><span class="muted">${esc(nomeTreino(t))} · ${dataCurta(t.data)}</span>${r.ajuda ? '<span class="chip aviso">💡 com ajuda</span>' : ''}</div>
-          <p><b>${esc(r.pergunta || q?.pergunta || '')}</b></p>
-          <div class="a-tua"><b>A tua resposta:</b> ${esc(r.texto ?? (q?.opcoes && r.resposta != null ? q.opcoes[r.resposta] : '')) || '<i>em branco</i>'}</div>
-          <div class="notas-comparar">
-            ${r.pontuacaoAuto != null ? `<span>✋ Tu deste <b>${pctTxt(r.pontuacaoAuto)}</b></span><span class="seta">→</span>` : ''}
-            <span class="nota-final ${r.pontuacao === 1 ? 'bom' : r.pontuacao > 0 ? 'medio' : 'mau'}">Nota final <b>${pctTxt(r.pontuacao)}</b></span>
-          </div>
-          ${r.comentario ? `<p class="comentario-revisao">💬 ${esc(r.comentario)}</p>` : ''}
-          ${modelo && r.pontuacao < 1 ? `<p><b>Resposta certa:</b> ${esc(modelo)}</p>` : ''}
-          ${q?.onde && r.pontuacao < 1 ? `<p class="muted">📍 Página ${q.pagina}: ${esc(q.onde)}</p>` : ''}
-          ${r.respostaRevisao ? `<p class="comentario-revisao resposta">↩️ Resposta da revisão: ${esc(r.respostaRevisao)}</p>` : ''}
-          ${notaDiferente(r) || r.reacao ? reacaoHtml : ''}
-        </div>`;
-    };
+    }
+    const resposta = r.texto ?? (q?.opcoes && r.resposta != null ? q.opcoes[r.resposta] : '');
+    return `
+      <div class="cartao-revisao item-correcao">
+        <div class="seccao-topo"><span class="muted">${comTeste ? `${esc(nomeTreino(t))} · ${dataCurta(t.data)}` : `${NIVEL[r.nivel] || ''}`}</span>${r.ajuda ? '<span class="chip aviso">💡 com ajuda</span>' : ''}</div>
+        <p><b>${esc(r.pergunta || q?.pergunta || '')}</b></p>
+        <div class="a-tua"><b>${editavel ? 'A tua resposta' : 'Resposta dela'}:</b> ${esc(resposta) || '<i>em branco</i>'}</div>
+        <div class="notas-comparar">
+          ${r.pontuacaoAuto != null ? `<span>✋ ${editavel ? 'Tu deste' : 'Ela deu'} <b>${pctTxt(r.pontuacaoAuto)}</b></span><span class="seta">→</span>` : ''}
+          <span class="nota-final ${r.pontuacao === 1 ? 'bom' : r.pontuacao > 0 ? 'medio' : 'mau'}">Nota final <b>${pctTxt(r.pontuacao)}</b></span>
+        </div>
+        ${r.comentario ? `<p class="comentario-revisao">💬 ${esc(r.comentario)}</p>` : ''}
+        ${modelo && r.pontuacao < 1 ? `<p><b>Resposta certa:</b> ${esc(modelo)}</p>` : ''}
+        ${q?.onde && r.pontuacao < 1 ? `<p class="muted">📍 Página ${q.pagina}: ${esc(q.onde)}</p>` : ''}
+        ${r.respostaRevisao ? `<p class="comentario-revisao resposta">↩️ Resposta da revisão: ${esc(r.respostaRevisao)}</p>` : ''}
+        ${reacaoHtml}
+      </div>`;
+  }
 
-    const cartaoTeste = t => {
-      const mal = porMelhorar(t);
-      return `
-        <div class="cartao-revisao">
-          <div class="seccao-topo"><b>${t.modo === 'real' ? '🎓' : '✍️'} ${esc(nomeTreino(t))}</b><span class="muted">${dataCurta(t.data)}</span></div>
-          <p>${t.autoPercent != null ? `✋ A tua autoavaliação: ${t.autoPercent}% · ` : ''}<b>Nota final: ${t.percent}%</b> ${!t.correcao?.vista ? '<span class="chip ok">Nova</span>' : ''}</p>
-          ${t.correcao?.comentarioGeral ? `<div class="feedback ajuda">💬 ${esc(t.correcao.comentarioGeral)}</div>` : ''}
-          ${mal.length ? `<h3>O que ainda não estava bem (${mal.length})</h3>
-            <ol class="respostas-real">${mal.map(r => {
-              const q = perguntaPorId[r.id];
-              const modelo = q?.escrita?.modelo || (q?.opcoes ? q.opcoes[q.correta] : '');
-              return `<li>
-                <b>${esc(r.pergunta || q?.pergunta || '')}</b>
-                <span class="chip ${r.pontuacao > 0 ? 'aviso' : ''}">${Math.round((r.pontuacao || 0) * 100)}%</span>
-                ${r.pontuacaoAuto != null && r.pontuacaoAuto !== r.pontuacao ? `<small class="muted">(tinhas dado ${Math.round(r.pontuacaoAuto * 100)}%)</small>` : ''}
-                ${r.ajuda ? '<span class="chip aviso">💡 com ajuda</span>' : ''}
-                <div class="a-tua"><b>A tua resposta:</b> ${esc(r.texto ?? '') || '<i>em branco</i>'}</div>
-                ${r.comentario ? `<p>💬 ${esc(r.comentario)}</p>` : ''}
-                ${modelo ? `<p><b>Resposta certa:</b> ${esc(modelo)}</p>` : ''}
-                ${q?.onde ? `<p class="muted">📍 Página ${q.pagina}: ${esc(q.onde)}</p>` : ''}
-              </li>`;
-            }).join('')}</ol>` : '<p>🎉 Estava tudo certo!</p>'}
-          <p><a class="btn" href="#/real/${t.id}">Ver todas as respostas</a></p>
-        </div>`;
-    };
+  // Secção de correções (usada dentro da página de cada teste da escola, e na página de correções da disciplina).
+  // link(filtro) dá o endereço de cada filtro, para mudar de filtro sem sair da página onde a Leonor está.
+  function seccaoCorrecoes(amb, filtro, link) {
+    const itens = itensCorrecao(amb);
+    const lista = corrigidos(amb);
+    const contagem = k => FILTROS_CORRECAO[k].f ? itens.filter(FILTROS_CORRECAO[k].f).length : lista.length;
+    if (!FILTROS_CORRECAO[filtro]) filtro = contagem('rever') ? 'rever' : contagem('mal') ? 'mal' : 'testes';
+    const pend = pendentesRevisao(amb);
+    const perg = perguntasPorId();
+    const cartaoTeste = t => `
+      <div class="cartao-revisao">
+        <div class="seccao-topo"><b>${t.modo === 'real' ? '🎓' : '✍️'} ${esc(nomeTreino(t))}</b><span class="muted">${dataCurta(t.data)}</span></div>
+        <p>${t.autoPercent != null ? `✋ A tua autoavaliação: ${t.autoPercent}% · ` : ''}<b>Nota final: ${t.percent}%</b> ${!t.correcao?.vista ? '<span class="chip ok">Nova</span>' : ''}</p>
+        ${t.correcao?.comentarioGeral ? `<div class="feedback ajuda">💬 ${esc(t.correcao.comentarioGeral)}</div>` : ''}
+        <p>${porMelhorar(t).length ? `${porMelhorar(t).length} resposta(s) que não estavam bem.` : '🎉 Estava tudo certo!'} <a class="btn" href="#/real/${t.id}">Ver todas as respostas</a></p>
+      </div>`;
     const mostrar = FILTROS_CORRECAO[filtro].f ? itens.filter(FILTROS_CORRECAO[filtro].f) : null;
-    render(`
-      <section class="cartao">
-        <a href="#/" class="voltar">← Início</a>
-        <h1>📝 Correções dos teus testes</h1>
+    const html = `
+      <div id="correcoes">
         <p class="muted">Depois da revisão, vês aqui a nota final de cada resposta. Quando a nota é diferente da que deste, diz se concordas — e, se não concordas, explica porquê. As perguntas que falhaste entram no treino "🎯 As que mais custam".</p>
         ${pend.length ? `<p>⏳ À espera de revisão: ${pend.map(t => `${esc(nomeTreino(t))} (✋ ${t.autoPercent ?? '—'}%)`).join(', ')}</p>` : ''}
         <div class="filtros-correcao">
-          ${Object.entries(FILTROS_CORRECAO).map(([k, f]) => `<a class="filtro ${k === filtro ? 'ativo' : ''}" href="#/correcoes/${k}">${f.nome} <span class="contagem">${contagem(k)}</span></a>`).join('')}
+          ${Object.entries(FILTROS_CORRECAO).map(([k, f]) => `<a class="filtro ${k === filtro ? 'ativo' : ''}" href="${link(k)}">${f.nome} <span class="contagem">${contagem(k)}</span></a>`).join('')}
         </div>
         <p class="muted">${FILTROS_CORRECAO[filtro].desc}</p>
         ${mostrar
-          ? (mostrar.length ? mostrar.map(cartaoResposta).join('') : `<p>${filtro === 'rever' ? '✅ Já viste todas as correções em que a nota era diferente da tua. Muito bem!' : 'Não há respostas aqui.'}</p>`)
+          ? (mostrar.length ? mostrar.map((x, i) => cartaoRespostaCorrecao(x, i, perg, true)).join('') : `<p>${filtro === 'rever' ? '✅ Já viste todas as correções em que a nota era diferente da tua. Muito bem!' : 'Não há respostas aqui.'}</p>`)
           : (lista.length ? lista.map(cartaoTeste).join('') : '<p class="muted">Ainda não há testes revistos.</p>')}
-      </section>`);
+      </div>`;
 
-    // Reações da Leonor às correções.
-    const guardarReacao = async (i, concorda, comentario = '') => {
-      const { t, r } = mostrar[i];
-      r.reacao = { concorda, comentario, data: new Date().toISOString() };
-      try { await A.guardarRegisto(t); } catch (erro) { alert('Não foi possível guardar: ' + erro.message); }
-      const y = scrollY; ecraCorrecoes(filtro); scrollTo(0, y);
+    // Liga os botões depois de a página estar desenhada; reabrir() volta a desenhar a mesma página.
+    const ligar = reabrir => {
+      const redesenhar = () => { const y = scrollY; reabrir(); scrollTo(0, y); };
+      const guardarReacao = async (i, concorda, comentario = '') => {
+        const { t, r } = mostrar[i];
+        r.reacao = { concorda, comentario, data: new Date().toISOString() };
+        try { await A.guardarRegisto(t); } catch (erro) { alert('Não foi possível guardar: ' + erro.message); }
+        redesenhar();
+      };
+      $app.querySelectorAll('[data-concordo]').forEach(bt => bt.onclick = () => guardarReacao(+bt.dataset.concordo, true));
+      $app.querySelectorAll('[data-discordo]').forEach(bt => bt.onclick = () => {
+        const caixa = document.getElementById('rc-' + bt.dataset.discordo);
+        caixa.hidden = false; caixa.querySelector('textarea').focus();
+      });
+      $app.querySelectorAll('[data-enviar]').forEach(bt => bt.onclick = () => {
+        const caixa = document.querySelector(`#rc-${bt.dataset.enviar} textarea`);
+        const txt = caixa.value.trim();
+        if (!txt) { caixa.placeholder = 'Escreve primeiro porque não concordas 🙂'; return; }
+        guardarReacao(+bt.dataset.enviar, false, txt);
+      });
+      $app.querySelectorAll('[data-mudar]').forEach(bt => bt.onclick = () => {
+        const { r } = mostrar[+bt.dataset.mudar];
+        r.reacao = { ...r.reacao, editar: true };
+        redesenhar();
+      });
+      // Marca como vistas as correções novas (para o aviso da página inicial desaparecer).
+      lista.filter(t => !t.correcao?.vista).forEach(t => { t.correcao.vista = new Date().toISOString(); A.guardarRegisto(t).catch(() => {}); });
     };
-    $app.querySelectorAll('[data-concordo]').forEach(bt => bt.onclick = () => guardarReacao(+bt.dataset.concordo, true));
-    $app.querySelectorAll('[data-discordo]').forEach(bt => bt.onclick = () => {
-      const caixa = document.getElementById('rc-' + bt.dataset.discordo);
-      caixa.hidden = false; caixa.querySelector('textarea').focus();
-    });
-    $app.querySelectorAll('[data-enviar]').forEach(bt => bt.onclick = () => {
-      const txt = document.querySelector(`#rc-${bt.dataset.enviar} textarea`).value.trim();
-      if (!txt) { document.querySelector(`#rc-${bt.dataset.enviar} textarea`).placeholder = 'Escreve primeiro porque não concordas 🙂'; return; }
-      guardarReacao(+bt.dataset.enviar, false, txt);
-    });
-    $app.querySelectorAll('[data-mudar]').forEach(bt => bt.onclick = () => {
-      const { r } = mostrar[+bt.dataset.mudar];
-      r.reacao = { ...r.reacao, editar: true };
-      const y = scrollY; ecraCorrecoes(filtro); scrollTo(0, y);
-    });
-    // Marca como vistas as correções novas (para o aviso da página inicial desaparecer).
-    lista.filter(t => !t.correcao?.vista).forEach(t => { t.correcao.vista = new Date().toISOString(); A.guardarRegisto(t).catch(() => {}); });
+    return { html, ligar };
+  }
+
+  // Página de correções de uma disciplina (para os treinos do livro e testes fora de um teste da escola).
+  function ecraCorrecoes(filtro, amb) {
+    const d = disciplinas[amb.did];
+    const sec = seccaoCorrecoes(amb, filtro, k => linkCorrecoes(amb, k));
+    render(`
+      <section class="cartao">
+        <a href="#/d/${d.id}" class="voltar">← ${esc(d.nome)}</a>
+        <h1>📝 Correções · ${esc(d.nome)}</h1>
+        ${sec.html}
+      </section>`);
+    sec.ligar(() => ecraCorrecoes(filtro, amb));
   }
 
   // ---------- disciplina ----------
@@ -500,6 +548,7 @@ const App = (() => {
         <h1>${d.icone || ''} ${esc(d.nome)} <span class="muted titulo-sub">${esc(d.nomeCompleto)}</span></h1>
         <div class="seccao-topo"><h2>Testes</h2><a class="btn" href="#/gerir/${did}">⚙️ Gerir testes</a></div>
         ${porPeriodo || `<p class="muted">Ainda não há testes marcados. <a href="#/gerir/${did}/novo">Criar o primeiro teste</a>.</p>`}
+        ${blocoCorrecoes({ did })}
         <h2>Livros</h2>
         <div class="livros">${livrosHtml}</div>
       </section>`);
@@ -545,11 +594,18 @@ const App = (() => {
   }
 
   // ---------- um teste da escola ----------
-  function ecraAvaliacao(a) {
+  // filtroCorrecoes: se vier (#/t/<id>/correcoes/<filtro>), a secção das correções aparece aberta nesta mesma página.
+  function ecraAvaliacao(a, filtroCorrecoes) {
     const l = livros[a.livro];
     if (!l) return render(`<section class="cartao"><a href="#/d/${a.disciplina}" class="voltar">← Voltar</a><h1>Livro não encontrado</h1></section>`);
     const pags = paginasDaAvaliacao(a);
     const { total, estudadas } = progressoAvaliacao(a);
+    const amb = { did: a.disciplina, aval: a.id };
+    const temCorrecoes = corrigidos(amb).length || pendentesRevisao(amb).length;
+    const nRever = itensCorrecao(amb).filter(FILTROS_CORRECAO.rever.f).length;
+    const novos = corrigidos(amb).filter(t => !t.correcao?.vista).length;
+    const aberta = filtroCorrecoes != null;
+    const sec = aberta ? seccaoCorrecoes(amb, filtroCorrecoes, k => `#/t/${a.id}/correcoes/${k}`) : null;
     render(`
       <section class="cartao">
         <a href="#/d/${a.disciplina}" class="voltar">← ${esc(disciplinas[a.disciplina]?.nome || 'Voltar')}</a>
@@ -557,6 +613,14 @@ const App = (() => {
         <p class="muted">📅 ${quandoE(a.data)} · 📕 ${esc(l.titulo)}, páginas ${a.de} a ${a.ate}</p>
         <div class="progresso"><div style="width:${pct(estudadas, total)}%"></div></div>
         <p class="muted">${estudadas} de ${total} páginas estudadas. Estuda e testa lição a lição; no fim faz o teste global.</p>
+        ${temCorrecoes ? `
+          <div class="seccao-correcoes ${nRever ? 'destaque' : ''}" id="sec-correcoes">
+            <div class="seccao-topo">
+              <div><b>📝 Correções</b> ${novos ? `<span class="chip ok">${novos} nova(s)</span>` : ''} ${nRever ? `<span class="chip aviso">${nRever} para veres</span>` : ''}</div>
+              ${aberta ? `<a class="btn" href="#/t/${a.id}">Fechar</a>` : `<a class="btn ${nRever ? 'prim' : ''}" href="#/t/${a.id}/correcoes">Ver correções</a>`}
+            </div>
+            ${aberta ? sec.html : ''}
+          </div>` : ''}
         ${listaPorLicao(a.livro, pags, a)}
         <div class="global">
           <div><b>Teste global</b><br><span class="muted">Todas as páginas deste teste (${a.de} a ${a.ate}), com perguntas de vários níveis.</span></div>
@@ -564,6 +628,10 @@ const App = (() => {
         </div>
         ${blocoCustam(a)}
       </section>`);
+    if (aberta) {
+      sec.ligar(() => ecraAvaliacao(a, filtroCorrecoes));
+      document.getElementById('sec-correcoes')?.scrollIntoView();
+    }
   }
 
   // ---------- livro inteiro ----------
@@ -1390,6 +1458,7 @@ const App = (() => {
     const comNota = e.testes.filter(t => t.percent != null);
     const media = comNota.length ? Math.round(comNota.reduce((s, t) => s + t.percent, 0) / comNota.length) : null;
     const reais = e.testes.filter(corrigivel).reverse();
+    const perguntasTodas = perguntasPorId();
     const pendentes = reais.filter(porCorrigir);
 
     const porNivel = { 1: { c: 0, t: 0 }, 2: { c: 0, t: 0 }, 3: { c: 0, t: 0 } };
@@ -1516,8 +1585,12 @@ const App = (() => {
             <td>${t.estado === 'corrigido' ? '<span class="chip ok">Corrigido</span>' : `<span class="chip aviso">${t.modo === 'real' ? 'Por corrigir' : 'Por rever'}</span>`}</td>
             <td>${t.autoPercent != null ? `${t.autoPercent}%` : '—'}</td>
             <td>${t.percent != null ? `<b>${t.percent}%</b>` : '⏳'}</td>
-            <td class="acoes-tabela"><a class="btn" href="#/real/${t.id}">Ver</a>
-              ${t.estado !== 'corrigido' ? `<button class="btn" data-pedido="${t.id}">⬇️ Só este</button>` : ''}</td></tr>`).join('')}</tbody>
+            <td class="acoes-tabela"><button class="btn" data-abrir="${t.id}">▸ Respostas${t.respostas.some(r => r.reacao?.concorda === false) ? ' 💬' : ''}</button>
+              ${t.estado !== 'corrigido' ? `<button class="btn" data-pedido="${t.id}">⬇️ Só este</button>` : ''}</td></tr>
+            <tr class="detalhe-correcao" id="det-${t.id}" hidden><td colspan="7">
+              ${t.correcao?.comentarioGeral ? `<div class="feedback ajuda">💬 ${esc(t.correcao.comentarioGeral)}</div>` : ''}
+              ${t.respostas.map((r, i) => cartaoRespostaCorrecao({ t, r }, i, perguntasTodas, false, false)).join('')}
+            </td></tr>`).join('')}</tbody>
           </table></div>
           ${(() => {
             const contest = e.testes.flatMap(t => t.respostas.filter(r => r.reacao?.concorda === false).map(r => ({ t, r })));
@@ -1593,6 +1666,12 @@ const App = (() => {
     };
     document.getElementById('exportar').onclick = A.exportar;
     $app.querySelectorAll('[data-pedido]').forEach(bt => bt.onclick = () => descarregarParaCorrecao([testeReal(bt.dataset.pedido)]));
+    // Abrir/fechar as respostas de um teste na tabela das correções (com as reações da Leonor).
+    $app.querySelectorAll('[data-abrir]').forEach(bt => bt.onclick = () => {
+      const det = document.getElementById('det-' + bt.dataset.abrir);
+      det.hidden = !det.hidden;
+      bt.textContent = bt.textContent.replace(det.hidden ? '▾' : '▸', det.hidden ? '▸' : '▾');
+    });
     const $todos = document.getElementById('pedido-todos');
     if ($todos) $todos.onclick = () => descarregarParaCorrecao(pendentes);
     const $correcao = document.getElementById('correcao');

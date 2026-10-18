@@ -118,7 +118,11 @@ table.mini-niveis { border-collapse: collapse; font-size: 12px; flex: none; widt
 .mini-niveis th, .mini-niveis td { padding: 2px 6px; text-align: center; border: 1px solid var(--linha); min-width: 38px; }
 .mini-niveis th { font-weight: 600; color: var(--muted); background: var(--fundo); }
 .mini-niveis sup { font-size: 9px; }
-.filtros-correcao { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.detalhe-correcao td { background: var(--fundo); padding: 10px; }
+.detalhe-correcao[hidden] { display: none; }
+.seccao-correcoes { border: 1px solid var(--linha); border-radius: 12px; padding: 12px 14px; margin: 14px 0; }
+.seccao-correcoes.destaque, .bloco-correcoes.destaque { border: 2px solid var(--prim); }
+.filtros-correcao {display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
 .filtros-correcao .filtro { text-decoration: none; color: var(--texto); border: 1px solid var(--linha); border-radius: 999px; padding: 6px 12px; background: var(--cartao); }
 .filtros-correcao .filtro.ativo { border-color: var(--prim); background: var(--prim); color: #fff; }
 .filtros-correcao .contagem { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; background: rgba(0,0,0,.08); font-size: 13px; text-align: center; }
