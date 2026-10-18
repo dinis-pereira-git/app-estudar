@@ -118,7 +118,11 @@ table.mini-niveis { border-collapse: collapse; font-size: 12px; flex: none; widt
 .mini-niveis th, .mini-niveis td { padding: 2px 6px; text-align: center; border: 1px solid var(--linha); min-width: 38px; }
 .mini-niveis th { font-weight: 600; color: var(--muted); background: var(--fundo); }
 .mini-niveis sup { font-size: 9px; }
-.cel-nivel.media { font-weight: 700; border-left: 2px solid var(--linha); }
+.aviso-correcoes { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; border: 2px solid var(--prim); margin: 10px 0 16px; text-align: left; }
+.legenda-niveis {font-size: 13px; }
+.legenda-niveis .cel-nivel { padding: 1px 6px; border-radius: 4px; }
+.cel-nivel.provisorio {background: #ece7fb !important; color: #5b3fb5; font-style: italic; outline: 1px dashed #9a86d8; outline-offset: -3px; }
+.cel-nivel.media {font-weight: 700; border-left: 2px solid var(--linha); }
 .global { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; padding: 16px; background: var(--fundo); border-radius: 12px; }
 
 /* estudar */

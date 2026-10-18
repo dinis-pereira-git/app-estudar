@@ -129,13 +129,17 @@ const App = (() => {
   const estiloDe = r => r.modo === 'escolha' ? 'escolha' : 'escola';
   function progressoNiveis(lid, nums) {
     const qs = livros[lid].perguntas.filter(q => nums.includes(q.pagina));
-    const certas = { escola: new Set(), escolha: new Set() }, ajuda = { escola: new Set(), escolha: new Set() };
-    // Num teste ainda por rever, as respostas que ela própria se deu como certas só contam depois da revisão.
+    const novo = () => ({ escola: new Set(), escolha: new Set() });
+    const certas = novo(), ajuda = novo(), pend = novo();
+    // Num teste ainda por rever, as respostas que ela própria se deu como certas ficam "provisórias" (pend):
+    // aparecem com outra cor até a revisão as confirmar.
     A.estado.testes.forEach(t => t.livro === lid && !porCorrigir(t) && t.respostas.forEach(r => {
       if (r.certa && r.auditoria !== 'mal' && !anulada(t, r)) (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
     }));
     A.estado.testes.forEach(t => t.livro === lid && t.modo === 'escola' && porCorrigir(t) && t.respostas.forEach(r => {
-      if (r.certa && !autoavaliadas({ respostas: [r] }).length) (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
+      if (!r.certa) return;
+      const auto = autoavaliadas({ respostas: [r] }).length;
+      (r.ajuda ? ajuda : auto ? pend : certas)[estiloDe(r)].add(r.id);
     }));
     const res = {};
     for (const e of Object.keys(ESTILOS)) for (const n of [1, 2, 3]) {
@@ -143,10 +147,27 @@ const App = (() => {
       res[e + n] = {
         total: lista.length,
         certas: lista.filter(q => certas[e].has(q.id)).length,
-        ajuda: lista.filter(q => !certas[e].has(q.id) && ajuda[e].has(q.id)).length,
+        pend: lista.filter(q => !certas[e].has(q.id) && pend[e].has(q.id)).length,
+        ajuda: lista.filter(q => !certas[e].has(q.id) && !pend[e].has(q.id) && ajuda[e].has(q.id)).length,
       };
     }
     return res;
+  }
+
+  // Célula das tabelas de progresso (painel e mini-tabela das lições). Se há respostas autoavaliadas
+  // ainda por rever, mostra a % provisória (com elas) noutra cor, com ✋.
+  function celulaNivel(c, compacta) {
+    if (!c.total) return '<td class="muted">—</td>';
+    const v = pct(c.certas, c.total), vp = pct(c.certas + (c.pend || 0), c.total);
+    const prov = c.pend > 0;
+    const titulo = `${c.certas} de ${c.total} perguntas certas sem ajuda` + (prov ? `; mais ${c.pend} que ela deu como certas, à espera de revisão (sem elas: ${v}%)` : '') + (c.ajuda ? `; mais ${c.ajuda} só com ajuda` : '');
+    return `<td class="cel-nivel ${corPct(prov ? vp : v)}${prov ? ' provisorio' : ''}" title="${titulo}">${prov ? vp : v}%${prov ? '<sup>✋</sup>' : ''}${c.ajuda ? (compacta ? '<sup>💡</sup>' : `<small> +${c.ajuda}💡</small>`) : ''}</td>`;
+  }
+  function celulaMedia(p, estilo) {
+    const m = mediaEstilo(p, estilo), mp = mediaEstilo(p, estilo, true);
+    if (m == null) return '<td class="muted">—</td>';
+    const prov = mp !== m;
+    return `<td class="cel-nivel media ${corPct(prov ? mp : m)}${prov ? ' provisorio' : ''}" title="Média dos 3 níveis${prov ? ` (provisória; sem as respostas por rever: ${m}%)` : ''}">${prov ? mp : m}%${prov ? '<sup>✋</sup>' : ''}</td>`;
   }
   const comAjuda = t => t.respostas.filter(r => r.ajuda).length;
 
@@ -197,8 +218,8 @@ const App = (() => {
   // Respostas escritas em que foi ela a dizer se estava certa (pontos-chave marcados, ou "a minha também está certa").
   const autoavaliadas = t => t.respostas.filter(r => r.autoavaliada || r.corrigidaPelaAluna || (r.modo === 'explica' && r.confirmada));
   // Média de um estilo: média simples das % dos 3 níveis (cada nível pesa o mesmo — não chega fazer só as fáceis).
-  function mediaEstilo(p, estilo) {
-    const vals = [1, 2, 3].map(n => p[estilo + n]).filter(c => c.total).map(c => 100 * c.certas / c.total);
+  function mediaEstilo(p, estilo, provisoria) {
+    const vals = [1, 2, 3].map(n => p[estilo + n]).filter(c => c.total).map(c => 100 * (c.certas + (provisoria ? c.pend || 0 : 0)) / c.total);
     return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null;
   }
   const corPct = v => v >= 80 ? 'bom' : v >= 40 ? 'medio' : v > 0 ? 'baixo' : '';
@@ -277,6 +298,7 @@ const App = (() => {
     if (ecra === 'real' && testeReal(a)) return ecraTesteReal(testeReal(a));
     if (ecra === 'painel') return ecraPainel();
     if (ecra === 'revisao') return ecraRevisao(a === 'todas');
+    if (ecra === 'correcoes') return ecraCorrecoes();
     ecraCapa();
   }
 
@@ -296,8 +318,66 @@ const App = (() => {
       <section class="capa">
         <h1>Olá, Leonor! 👋</h1>
         <p class="muted">O que vamos estudar hoje?</p>
+        ${avisoCorrecoes()}
         <div class="disciplinas">${cartoes}</div>
       </section>`);
+  }
+
+  // ---------- correções para a Leonor ver ----------
+  // Depois da revisão, ela vê o que não estava bem: a sua resposta, a nota, o comentário e a resposta modelo.
+  const corrigidos = () => A.estado.testes.filter(t => corrigivel(t) && t.estado === 'corrigido').reverse();
+  const porMelhorar = t => t.respostas.filter(r => r.pontuacao < 1 || r.ajuda);
+  function avisoCorrecoes() {
+    const novos = corrigidos().filter(t => !t.correcao?.vista);
+    const pendentes = A.estado.testes.filter(porCorrigir).length;
+    if (!novos.length && !pendentes) return '';
+    return `
+      <div class="cartao aviso-correcoes">
+        ${novos.length ? `<div><b>📝 ${novos.length === 1 ? 'Um teste teu já foi revisto' : `${novos.length} testes teus já foram revistos`}!</b>
+          <span class="muted">Vê a nota final e o que ainda não estava bem.</span></div>
+          <a class="btn prim" href="#/correcoes">Ver correções</a>` : `<span class="muted">⏳ ${pendentes} teste(s) à espera de revisão.</span> <a class="btn" href="#/correcoes">Ver</a>`}
+      </div>`;
+  }
+
+  function ecraCorrecoes() {
+    const lista = corrigidos();
+    const pend = A.estado.testes.filter(porCorrigir).reverse();
+    const perguntaPorId = Object.fromEntries(Object.values(livros).flatMap(l => l.perguntas).map(q => [q.id, q]));
+    const cartaoTeste = t => {
+      const mal = porMelhorar(t);
+      return `
+        <div class="cartao-revisao">
+          <div class="seccao-topo"><b>${t.modo === 'real' ? '🎓' : '✍️'} ${esc(nomeTreino(t))}</b><span class="muted">${dataCurta(t.data)}</span></div>
+          <p>${t.autoPercent != null ? `✋ A tua autoavaliação: ${t.autoPercent}% · ` : ''}<b>Nota final: ${t.percent}%</b> ${!t.correcao?.vista ? '<span class="chip ok">Nova</span>' : ''}</p>
+          ${t.correcao?.comentarioGeral ? `<div class="feedback ajuda">💬 ${esc(t.correcao.comentarioGeral)}</div>` : ''}
+          ${mal.length ? `<h3>O que ainda não estava bem (${mal.length})</h3>
+            <ol class="respostas-real">${mal.map(r => {
+              const q = perguntaPorId[r.id];
+              const modelo = q?.escrita?.modelo || (q?.opcoes ? q.opcoes[q.correta] : '');
+              return `<li>
+                <b>${esc(r.pergunta || q?.pergunta || '')}</b>
+                <span class="chip ${r.pontuacao > 0 ? 'aviso' : ''}">${Math.round((r.pontuacao || 0) * 100)}%</span>
+                ${r.pontuacaoAuto != null && r.pontuacaoAuto !== r.pontuacao ? `<small class="muted">(tinhas dado ${Math.round(r.pontuacaoAuto * 100)}%)</small>` : ''}
+                ${r.ajuda ? '<span class="chip aviso">💡 com ajuda</span>' : ''}
+                <div class="a-tua"><b>A tua resposta:</b> ${esc(r.texto ?? '') || '<i>em branco</i>'}</div>
+                ${r.comentario ? `<p>💬 ${esc(r.comentario)}</p>` : ''}
+                ${modelo ? `<p><b>Resposta certa:</b> ${esc(modelo)}</p>` : ''}
+                ${q?.onde ? `<p class="muted">📍 Página ${q.pagina}: ${esc(q.onde)}</p>` : ''}
+              </li>`;
+            }).join('')}</ol>` : '<p>🎉 Estava tudo certo!</p>'}
+          <p><a class="btn" href="#/real/${t.id}">Ver todas as respostas</a></p>
+        </div>`;
+    };
+    render(`
+      <section class="cartao">
+        <a href="#/" class="voltar">← Início</a>
+        <h1>📝 Correções dos teus testes</h1>
+        <p class="muted">Aqui vês a nota final dos testes "como na escola" depois da revisão, e o que ainda não estava bem — é isso que vale a pena estudar outra vez. As perguntas que falhaste entram no treino "🎯 As que mais custam".</p>
+        ${pend.length ? `<p>⏳ À espera de revisão: ${pend.map(t => `${esc(nomeTreino(t))} (✋ ${t.autoPercent ?? '—'}%)`).join(', ')}</p>` : ''}
+        ${lista.length ? lista.map(cartaoTeste).join('') : '<p class="muted">Ainda não há testes revistos.</p>'}
+      </section>`);
+    // Marca como vistas as correções novas (para o aviso da página inicial desaparecer).
+    lista.filter(t => !t.correcao?.vista).forEach(t => { t.correcao.vista = new Date().toISOString(); A.guardarRegisto(t).catch(() => {}); });
   }
 
   // ---------- disciplina ----------
@@ -372,12 +452,8 @@ const App = (() => {
   // por estilo (✍️ escrita / ⚡ escolha múltipla) e nível. Mostra o que falta praticar.
   function miniProgresso(lid, nums) {
     const p = progressoNiveis(lid, nums);
-    const cel = c => {
-      if (!c.total) return '<td class="muted">—</td>';
-      const v = pct(c.certas, c.total);
-      return `<td class="cel-nivel ${v >= 80 ? 'bom' : v >= 40 ? 'medio' : v > 0 ? 'baixo' : ''}" title="${c.certas} de ${c.total} perguntas certas sem ajuda${c.ajuda ? `; mais ${c.ajuda} só com ajuda` : ''}">${v}%${c.ajuda ? '<sup>💡</sup>' : ''}</td>`;
-    };
-    const media = e => { const m = mediaEstilo(p, e); return m == null ? '<td class="muted">—</td>' : `<td class="cel-nivel media ${corPct(m)}" title="Média dos 3 níveis">${m}%</td>`; };
+    const cel = c => celulaNivel(c, true);
+    const media = e => celulaMedia(p, e);
     return `
       <table class="mini-niveis" title="Perguntas certas sem ajuda, por estilo e nível">
         <tr><th></th><th>★</th><th>★★</th><th>★★★</th><th>Média</th></tr>
@@ -434,7 +510,10 @@ const App = (() => {
   }
 
   // Uma linha por lição (as páginas de um vídeo), com estudar e testar.
-  const listaPorLicao = (lid, nums, a) => `<ol class="pag-lista">${gruposLicoes(lid, nums).map(g => linhaLicao(lid, g, a)).join('')}</ol>`;
+  const listaPorLicao = (lid, nums, a) => `
+    <p class="muted legenda-niveis">Tabelas: % das perguntas certas sem ajuda — ✍️ escrita, ⚡ escolha múltipla.
+      <span class="cel-nivel provisorio">roxo ✋</span> = inclui respostas que deste como certas e que ainda vão ser revistas · 💡 = há perguntas que só acertaste com ajuda.</p>
+    <ol class="pag-lista">${gruposLicoes(lid, nums).map(g => linhaLicao(lid, g, a)).join('')}</ol>`;
 
   // Os vídeos ficam no Google Drive do pai, partilhados com a conta Google da Leonor
   // (ocupam muito espaço para o Supabase). Em modo local usa-se o ficheiro da pasta Videos.
@@ -975,7 +1054,7 @@ const App = (() => {
     const chipNota = v => v == null ? '' : `<span class="chip ${v === 1 ? 'ok' : v > 0 ? 'aviso' : ''}">${Math.round(v * 100)}%</span>`;
     render(`
       <section class="cartao centro">
-        <a href="#/painel" class="voltar">← Painel</a>
+        <a href="javascript:history.back()" class="voltar">← Voltar</a>
         <h1>${real ? '🎓' : '✍️'} ${esc(t.avaliacaoNome)} · ${real ? 'teste real' : 'como no teste da escola'}</h1>
         <p class="muted">${dataCurta(t.data)} · ${nomeTreino(t)}</p>
         ${t.autoPercent != null ? `<p>✋ Autoavaliação: <b>${t.autoPercent}%</b></p>` : ''}
@@ -1284,18 +1363,9 @@ const App = (() => {
         </div>`;
     }).join('');
 
-    const celula = c => {
-      if (!c.total) return '<td class="muted">—</td>';
-      const p = pct(c.certas, c.total);
-      return `<td class="cel-nivel ${p >= 80 ? 'bom' : p >= 40 ? 'medio' : p > 0 ? 'baixo' : ''}" title="${c.certas} de ${c.total} perguntas certas sem ajuda${c.ajuda ? `; mais ${c.ajuda} só com ajuda` : ''}">${p}%${c.ajuda ? `<small> +${c.ajuda}💡</small>` : ''}</td>`;
-    };
-    const soma = linhas => Object.fromEntries(Object.keys(linhas[0] || {}).map(k => [k, linhas.reduce((s, x) => ({ total: s.total + x[k].total, certas: s.certas + x[k].certas, ajuda: s.ajuda + x[k].ajuda }), { total: 0, certas: 0, ajuda: 0 })]));
+    const soma = linhas => Object.fromEntries(Object.keys(linhas[0] || {}).map(k => [k, linhas.reduce((s, x) => ({ total: s.total + x[k].total, certas: s.certas + x[k].certas, pend: s.pend + x[k].pend, ajuda: s.ajuda + x[k].ajuda }), { total: 0, certas: 0, pend: 0, ajuda: 0 })]));
     const chaves = Object.keys(ESTILOS).flatMap(e => [1, 2, 3, 'M'].map(n => e + n));
-    const celulaOuMedia = (p, k) => {
-      if (!k.endsWith('M')) return celula(p[k]);
-      const m = mediaEstilo(p, k.slice(0, -1));
-      return m == null ? '<td class="muted">—</td>' : `<td class="cel-nivel media ${corPct(m)}" title="Média dos 3 níveis">${m}%</td>`;
-    };
+    const celulaOuMedia = (p, k) => k.endsWith('M') ? celulaMedia(p, k.slice(0, -1)) : celulaNivel(p[k]);
     const tabelasNiveis = Object.values(livros).map(l => {
       const linhas = gruposLicoes(l.id, l.paginas.map(p => p.numero)).map(g => ({ g, p: progressoNiveis(l.id, g.nums) }));
       const total = soma(linhas.map(x => x.p));
@@ -1376,7 +1446,8 @@ const App = (() => {
 
         <h2>Progresso por nível</h2>
         <p class="muted">Percentagem das perguntas de cada nível que ela já acertou <b>sem ajuda</b>, pelo menos uma vez — só sobe se praticar perguntas diferentes, em cada estilo.
-          <b>+N💡</b> = perguntas que só acertou com ajuda (ainda não contam). O caminho certo é ★ → ★★ → ★★★, nos dois estilos.</p>
+          <b>+N💡</b> = perguntas que só acertou com ajuda (ainda não contam). <span class="cel-nivel provisorio">Roxo ✋</span> = valor provisório, inclui respostas autoavaliadas à espera de revisão.
+          O caminho certo é ★ → ★★ → ★★★, nos dois estilos.</p>
         ${tabelasNiveis}
 
         <h2>Acertos por nível <small class="muted">(todas as respostas, sem ajuda)</small></h2>
