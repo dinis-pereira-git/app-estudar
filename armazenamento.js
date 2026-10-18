@@ -16,6 +16,25 @@ const Armazenamento = (() => {
   const guardarLocal = () => { if (!db) try { localStorage.setItem(CHAVE, JSON.stringify(estado)); } catch {} };
   const avisar = erro => { if (erro) console.error('Erro a guardar no Supabase:', erro.message || erro); };
 
+  // Testes que não se conseguiram gravar online ficam guardados neste computador e são reenviados
+  // (ao abrir a app e de minuto a minuto), para nunca se perder um teste. A app mostra um aviso enquanto houver.
+  const CHAVE_PENDENTES = 'app-estudar-testes-por-enviar';
+  const lerPendentes = () => { try { return JSON.parse(localStorage.getItem(CHAVE_PENDENTES)) || []; } catch { return []; } };
+  const escreverPendentes = l => { try { localStorage.setItem(CHAVE_PENDENTES, JSON.stringify(l)); } catch {} };
+  let aoMudarPendentes = () => {};
+  async function enviarTestePendente(teste) {
+    const { error } = await db.from('testes').insert({ registo: teste, data: teste.data });
+    if (error) throw error;
+    escreverPendentes(lerPendentes().filter(t => t.id !== teste.id));
+  }
+  async function reenviarPendentes() {
+    if (!db) return;
+    for (const t of lerPendentes()) {
+      try { await enviarTestePendente(t); } catch (erro) { avisar(erro); break; }
+    }
+    aoMudarPendentes(lerPendentes().length);
+  }
+
   function infoPagina(livro, pagina) {
     return estado.paginas[`${livroId(livro)}:${pagina}`] ||= { estudada: false, segundos: 0 };
   }
@@ -53,9 +72,17 @@ const Armazenamento = (() => {
     }
     for (const p of estudadas.data) Object.assign(infoPagina(p.conteudo, p.pagina), { estudada: true, data: p.data });
     estado.testes = testes.data.map(r => normalizarTeste(r.registo));
+    // Testes deste computador que ainda não chegaram ao servidor: mostram-se já e tenta-se enviá-los.
+    const ids = new Set(estado.testes.map(t => String(t.id)));
+    const pendentes = lerPendentes().filter(t => !ids.has(String(t.id)));
+    escreverPendentes(pendentes);
+    estado.testes.push(...pendentes.map(normalizarTeste));
+    estado.testes.sort((a, b) => String(a.data).localeCompare(String(b.data)));
     estado.testes.forEach(contarNoHistorico);
     estado.avaliacoes = avaliacoes.data;
 
+    reenviarPendentes();
+    setInterval(reenviarPendentes, 60000);
     setInterval(enviarTempo, 30000);
     addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') enviarTempo(); });
     addEventListener('pagehide', enviarTempo);
@@ -114,8 +141,17 @@ const Armazenamento = (() => {
       estado.testes.push(teste);
       contarNoHistorico(teste);
       guardarLocal();
-      db?.from('testes').insert({ registo: teste, data: teste.data }).then(({ error }) => avisar(error));
+      if (!db) return;
+      // Primeiro guarda-se neste computador; só sai da lista depois de o servidor confirmar.
+      escreverPendentes([...lerPendentes().filter(t => t.id !== teste.id), teste]);
+      enviarTestePendente(teste).then(() => aoMudarPendentes(lerPendentes().length))
+        .catch(erro => { avisar(erro); aoMudarPendentes(lerPendentes().length); });
     },
+
+    // Quantos testes estão por enviar, e aviso quando isso muda (para a app mostrar um alerta).
+    get testesPorEnviar() { return lerPendentes().length; },
+    set aoMudarPendentes(f) { aoMudarPendentes = f; },
+    reenviarPendentes,
 
     // Usado quando chega a correção de um teste real.
     async atualizarTeste(teste) {
@@ -132,9 +168,25 @@ const Armazenamento = (() => {
     async guardarRegisto(teste) {
       guardarLocal();
       if (db) {
+        // Se o teste ainda está por enviar, atualiza-se a cópia local (vai com as alterações quando for enviado).
+        const pend = lerPendentes();
+        if (pend.some(t => t.id === teste.id)) { escreverPendentes(pend.map(t => t.id === teste.id ? teste : t)); return; }
         const { error } = await db.from('testes').update({ registo: teste }).eq('registo->>id', String(teste.id));
         if (error) throw error;
       }
+    },
+
+    // Juntar testes de uma cópia de progresso (exportar) que não estejam no servidor.
+    async importarTestes(lista) {
+      const ids = new Set(estado.testes.map(t => String(t.id)));
+      const novos = lista.filter(t => !ids.has(String(t.id)));
+      for (const t of novos) {
+        estado.testes.push(normalizarTeste(t));
+        contarNoHistorico(t);
+        if (db) { escreverPendentes([...lerPendentes(), t]); await enviarTestePendente(t); }
+      }
+      guardarLocal();
+      return novos.length;
     },
 
     async guardarAvaliacao(a) {

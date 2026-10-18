@@ -11,6 +11,7 @@ const App = (() => {
   // "?local" no endereço força o modo local (útil para testar no PC do pai sem login).
   const forcarLocal = new URLSearchParams(location.search).has('local');
   const db = SUPABASE_URL && SUPABASE_KEY && !forcarLocal ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  let contaAtual = ''; // email da conta com que se entrou (mostrado no painel)
 
   const disciplinas = {};    // id → { id, nome, nomeCompleto, icone, livros: [ids] }
   const livros = {};         // id → { id, titulo, descricao, disciplina, paginas, perguntas, url(ficheiro) }
@@ -1558,6 +1559,7 @@ const App = (() => {
     render(`
       <section class="cartao">
         <h1>Painel de estudo</h1>
+        ${contaAtual ? `<p class="muted">Conta: <b>${esc(contaAtual)}</b>${A.testesPorEnviar ? ` · ⚠️ ${A.testesPorEnviar} teste(s) por gravar no servidor` : ' · ✅ tudo gravado no servidor'}</p>` : ''}
         <div class="kpis">
           <div class="kpi"><span>Hoje</span><b>${fmt(e.tempoPorDia[hoje] || 0)}</b></div>
           <div class="kpi"><span>Últimos 7 dias</span><b>${fmt(tempoSemana)}</b></div>
@@ -1579,15 +1581,16 @@ const App = (() => {
         ${reais.length ? `
           <p>${pendentes.length ? `<b>${pendentes.length} teste(s) à espera de revisão.</b> <button class="btn prim" id="pedido-todos">⬇️ Descarregar todos para correção</button>` : '✅ Não há testes por corrigir.'}</p>
           <div class="tabela-larga"><table>
-          <thead><tr><th>Data</th><th>Teste</th><th>Treino</th><th>Estado</th><th>✋ Autoavaliação</th><th>Nota final</th><th></th></tr></thead>
+          <thead><tr><th>Data</th><th>Teste</th><th>Treino</th><th>Nível</th><th>Estado</th><th>✋ Autoavaliação</th><th>Nota final</th><th></th></tr></thead>
           <tbody>${reais.map(t => `<tr><td>${dataCurta(t.data)}</td><td>${esc(t.avaliacaoNome)}</td>
             <td>${t.modo === 'real' ? '🎓 Teste real' : '✍️ Escola'} · ${nomeTreino(t)}</td>
+            <td>${DIFICULDADES[t.dificuldade]?.estrelas || ''} ${DIFICULDADES[t.dificuldade]?.nome || '—'}${t.exato ? ' 🎯' : ''}</td>
             <td>${t.estado === 'corrigido' ? '<span class="chip ok">Corrigido</span>' : `<span class="chip aviso">${t.modo === 'real' ? 'Por corrigir' : 'Por rever'}</span>`}</td>
             <td>${t.autoPercent != null ? `${t.autoPercent}%` : '—'}</td>
             <td>${t.percent != null ? `<b>${t.percent}%</b>` : '⏳'}</td>
             <td class="acoes-tabela"><button class="btn" data-abrir="${t.id}">▸ Respostas${t.respostas.some(r => r.reacao?.concorda === false) ? ' 💬' : ''}</button>
               ${t.estado !== 'corrigido' ? `<button class="btn" data-pedido="${t.id}">⬇️ Só este</button>` : ''}</td></tr>
-            <tr class="detalhe-correcao" id="det-${t.id}" hidden><td colspan="7">
+            <tr class="detalhe-correcao" id="det-${t.id}" hidden><td colspan="8">
               ${t.correcao?.comentarioGeral ? `<div class="feedback ajuda">💬 ${esc(t.correcao.comentarioGeral)}</div>` : ''}
               ${t.respostas.map((r, i) => cartaoRespostaCorrecao({ t, r }, i, perguntasTodas, false, false)).join('')}
             </td></tr>`).join('')}</tbody>
@@ -1651,7 +1654,10 @@ const App = (() => {
           O objetivo é o número de 🔴 ir descendo — para isso há o treino <b>"🎯 As que mais custam"</b> em cada teste e no livro.</p>
         ${htmlCustam}
 
-        <p><button class="btn" id="exportar">⬇️ Guardar cópia do progresso</button></p>
+        <p><button class="btn" id="exportar">⬇️ Guardar cópia do progresso</button>
+          <label class="btn">📥 Juntar testes de uma cópia<input type="file" id="importar" accept=".json,application/json" hidden></label>
+          <span id="msg-importar" class="muted"></span></p>
+        <p class="muted">"Juntar testes" acrescenta os testes de uma cópia que ainda não estejam gravados (não apaga nem repete nada).</p>
 
         <h2>Recomeçar do zero</h2>
         <p class="muted">Apaga as páginas estudadas e todos os treinos e notas. Os testes da escola (datas e páginas) ficam.</p>
@@ -1665,6 +1671,15 @@ const App = (() => {
       catch (erro) { document.getElementById('msg-recomecar').textContent = 'Não foi possível apagar: ' + erro.message; }
     };
     document.getElementById('exportar').onclick = A.exportar;
+    document.getElementById('importar').onchange = async ev => {
+      const $m = document.getElementById('msg-importar');
+      try {
+        const copia = JSON.parse(await ev.target.files[0].text());
+        const n = await A.importarTestes(copia.testes || []);
+        ecraPainel();
+        document.getElementById('msg-importar').textContent = n ? `✅ ${n} teste(s) juntados.` : 'Não havia testes novos nesta cópia.';
+      } catch (erro) { $m.textContent = 'Não foi possível juntar: ' + erro.message; }
+    };
     $app.querySelectorAll('[data-pedido]').forEach(bt => bt.onclick = () => descarregarParaCorrecao([testeReal(bt.dataset.pedido)]));
     // Abrir/fechar as respostas de um teste na tabela das correções (com as reações da Leonor).
     $app.querySelectorAll('[data-abrir]').forEach(bt => bt.onclick = () => {
@@ -1756,8 +1771,17 @@ const App = (() => {
       const { data } = await db.auth.getSession();
       if (!data.session) return ecraLogin();
       $sair.hidden = false;
+      contaAtual = data.session.user?.email || '';
+      $sair.title = 'Conta: ' + contaAtual;
     }
     try {
+      // Aviso no topo enquanto houver testes que não se conseguiram gravar no servidor.
+      const $avisoGravar = document.getElementById('aviso-gravar');
+      A.aoMudarPendentes = n => {
+        $avisoGravar.hidden = !n;
+        $avisoGravar.innerHTML = n ? `⚠️ ${n} teste(s) ainda não foram gravados no servidor (ficaram guardados neste computador). <b>Não limpes o browser.</b> A app vai tentar outra vez. <button class="btn mini" id="tentar-gravar">Tentar agora</button>` : '';
+        document.getElementById('tentar-gravar')?.addEventListener('click', () => A.reenviarPendentes());
+      };
       await A.iniciar(db);
       const catalogo = await (await fetch('catalogo.json', { cache: 'no-cache' })).json();
       for (const d of catalogo.disciplinas) {
