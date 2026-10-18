@@ -298,7 +298,7 @@ const App = (() => {
     if (ecra === 'real' && testeReal(a)) return ecraTesteReal(testeReal(a));
     if (ecra === 'painel') return ecraPainel();
     if (ecra === 'revisao') return ecraRevisao(a === 'todas');
-    if (ecra === 'correcoes') return ecraCorrecoes();
+    if (ecra === 'correcoes') return ecraCorrecoes(a);
     ecraCapa();
   }
 
@@ -327,22 +327,74 @@ const App = (() => {
   // Depois da revisão, ela vê o que não estava bem: a sua resposta, a nota, o comentário e a resposta modelo.
   const corrigidos = () => A.estado.testes.filter(t => corrigivel(t) && t.estado === 'corrigido').reverse();
   const porMelhorar = t => t.respostas.filter(r => r.pontuacao < 1 || r.ajuda);
+  // Respostas corrigidas que interessam à Leonor: não estavam a 100%, tiveram ajuda, ou a nota final é diferente da dela.
+  const notaDiferente = r => r.pontuacaoAuto != null && Math.abs(r.pontuacaoAuto - (r.pontuacao || 0)) > 0.001;
+  const itensCorrecao = () => corrigidos().flatMap(t => t.respostas.filter(r => r.pontuacao < 1 || r.ajuda || notaDiferente(r)).map(r => ({ t, r })));
+  const FILTROS_CORRECAO = {
+    rever: { nome: '🔎 Para rever', desc: 'A nota final é diferente da que deste e ainda não disseste se concordas.', f: ({ r }) => notaDiferente(r) && !r.reacao },
+    mal: { nome: '❌ Não estavam bem', desc: 'Todas as respostas que não ficaram com 100% (ou em que usaste ajuda).', f: ({ r }) => r.pontuacao < 1 || r.ajuda },
+    contestei: { nome: '💬 Que contestei', desc: 'As correções com que não concordaste, e a resposta da revisão.', f: ({ r }) => r.reacao?.concorda === false },
+    testes: { nome: '📋 Por teste', desc: 'Nota final de cada teste revisto.' },
+  };
   function avisoCorrecoes() {
     const novos = corrigidos().filter(t => !t.correcao?.vista);
+    const paraRever = itensCorrecao().filter(FILTROS_CORRECAO.rever.f).length;
     const pendentes = A.estado.testes.filter(porCorrigir).length;
-    if (!novos.length && !pendentes) return '';
+    if (!novos.length && !paraRever && !pendentes) return '';
     return `
       <div class="cartao aviso-correcoes">
-        ${novos.length ? `<div><b>📝 ${novos.length === 1 ? 'Um teste teu já foi revisto' : `${novos.length} testes teus já foram revistos`}!</b>
-          <span class="muted">Vê a nota final e o que ainda não estava bem.</span></div>
+        ${novos.length || paraRever ? `<div><b>📝 ${novos.length ? (novos.length === 1 ? 'Um teste teu já foi revisto!' : `${novos.length} testes teus já foram revistos!`) : 'Tens correções para ver.'}</b>
+          <span class="muted">${paraRever ? `${paraRever} resposta(s) em que a nota final é diferente da tua — diz se concordas.` : 'Vê a nota final e o que ainda não estava bem.'}</span></div>
           <a class="btn prim" href="#/correcoes">Ver correções</a>` : `<span class="muted">⏳ ${pendentes} teste(s) à espera de revisão.</span> <a class="btn" href="#/correcoes">Ver</a>`}
       </div>`;
   }
 
-  function ecraCorrecoes() {
+  function ecraCorrecoes(filtro) {
+    const itens = itensCorrecao();
+    const contagem = k => FILTROS_CORRECAO[k].f ? itens.filter(FILTROS_CORRECAO[k].f).length : corrigidos().length;
+    if (!FILTROS_CORRECAO[filtro]) filtro = contagem('rever') ? 'rever' : contagem('mal') ? 'mal' : 'testes';
     const lista = corrigidos();
     const pend = A.estado.testes.filter(porCorrigir).reverse();
     const perguntaPorId = Object.fromEntries(Object.values(livros).flatMap(l => l.perguntas).map(q => [q.id, q]));
+    const pctTxt = v => `${Math.round((v || 0) * 100)}%`;
+
+    // Uma resposta corrigida, com a reação da Leonor (concordo / não concordo + comentário).
+    const cartaoResposta = ({ t, r }, i) => {
+      const q = perguntaPorId[r.id];
+      const modelo = q?.escrita?.modelo || (q?.opcoes ? q.opcoes[q.correta] : '');
+      const re = r.reacao;
+      const reacaoHtml = re && !re.editar ? `
+        <div class="reacao-feita ${re.concorda ? 'ok' : 'nao'}">
+          ${re.concorda ? '👍 Concordaste com a correção.' : `👎 Não concordaste: «${esc(re.comentario || '')}»`}
+          ${!re.concorda ? (r.respostaRevisao ? '' : ' <span class="muted">— à espera de resposta da revisão.</span>') : ''}
+          <button class="btn mini" data-mudar="${i}">Mudar</button>
+        </div>` : `
+        <div class="reacao" data-reacao="${i}">
+          <span>Concordas com esta correção?</span>
+          <button class="btn" data-concordo="${i}">👍 Concordo</button>
+          <button class="btn" data-discordo="${i}">👎 Não concordo</button>
+          <div class="reacao-comentario" id="rc-${i}" hidden>
+            <textarea rows="2" placeholder="Explica porque achas que a tua resposta estava certa">${esc(re?.comentario || '')}</textarea>
+            <button class="btn prim" data-enviar="${i}">Enviar</button>
+          </div>
+        </div>`;
+      return `
+        <div class="cartao-revisao item-correcao">
+          <div class="seccao-topo"><span class="muted">${esc(nomeTreino(t))} · ${dataCurta(t.data)}</span>${r.ajuda ? '<span class="chip aviso">💡 com ajuda</span>' : ''}</div>
+          <p><b>${esc(r.pergunta || q?.pergunta || '')}</b></p>
+          <div class="a-tua"><b>A tua resposta:</b> ${esc(r.texto ?? (q?.opcoes && r.resposta != null ? q.opcoes[r.resposta] : '')) || '<i>em branco</i>'}</div>
+          <div class="notas-comparar">
+            ${r.pontuacaoAuto != null ? `<span>✋ Tu deste <b>${pctTxt(r.pontuacaoAuto)}</b></span><span class="seta">→</span>` : ''}
+            <span class="nota-final ${r.pontuacao === 1 ? 'bom' : r.pontuacao > 0 ? 'medio' : 'mau'}">Nota final <b>${pctTxt(r.pontuacao)}</b></span>
+          </div>
+          ${r.comentario ? `<p class="comentario-revisao">💬 ${esc(r.comentario)}</p>` : ''}
+          ${modelo && r.pontuacao < 1 ? `<p><b>Resposta certa:</b> ${esc(modelo)}</p>` : ''}
+          ${q?.onde && r.pontuacao < 1 ? `<p class="muted">📍 Página ${q.pagina}: ${esc(q.onde)}</p>` : ''}
+          ${r.respostaRevisao ? `<p class="comentario-revisao resposta">↩️ Resposta da revisão: ${esc(r.respostaRevisao)}</p>` : ''}
+          ${notaDiferente(r) || r.reacao ? reacaoHtml : ''}
+        </div>`;
+    };
+
     const cartaoTeste = t => {
       const mal = porMelhorar(t);
       return `
@@ -368,14 +420,44 @@ const App = (() => {
           <p><a class="btn" href="#/real/${t.id}">Ver todas as respostas</a></p>
         </div>`;
     };
+    const mostrar = FILTROS_CORRECAO[filtro].f ? itens.filter(FILTROS_CORRECAO[filtro].f) : null;
     render(`
       <section class="cartao">
         <a href="#/" class="voltar">← Início</a>
         <h1>📝 Correções dos teus testes</h1>
-        <p class="muted">Aqui vês a nota final dos testes "como na escola" depois da revisão, e o que ainda não estava bem — é isso que vale a pena estudar outra vez. As perguntas que falhaste entram no treino "🎯 As que mais custam".</p>
+        <p class="muted">Depois da revisão, vês aqui a nota final de cada resposta. Quando a nota é diferente da que deste, diz se concordas — e, se não concordas, explica porquê. As perguntas que falhaste entram no treino "🎯 As que mais custam".</p>
         ${pend.length ? `<p>⏳ À espera de revisão: ${pend.map(t => `${esc(nomeTreino(t))} (✋ ${t.autoPercent ?? '—'}%)`).join(', ')}</p>` : ''}
-        ${lista.length ? lista.map(cartaoTeste).join('') : '<p class="muted">Ainda não há testes revistos.</p>'}
+        <div class="filtros-correcao">
+          ${Object.entries(FILTROS_CORRECAO).map(([k, f]) => `<a class="filtro ${k === filtro ? 'ativo' : ''}" href="#/correcoes/${k}">${f.nome} <span class="contagem">${contagem(k)}</span></a>`).join('')}
+        </div>
+        <p class="muted">${FILTROS_CORRECAO[filtro].desc}</p>
+        ${mostrar
+          ? (mostrar.length ? mostrar.map(cartaoResposta).join('') : `<p>${filtro === 'rever' ? '✅ Já viste todas as correções em que a nota era diferente da tua. Muito bem!' : 'Não há respostas aqui.'}</p>`)
+          : (lista.length ? lista.map(cartaoTeste).join('') : '<p class="muted">Ainda não há testes revistos.</p>')}
       </section>`);
+
+    // Reações da Leonor às correções.
+    const guardarReacao = async (i, concorda, comentario = '') => {
+      const { t, r } = mostrar[i];
+      r.reacao = { concorda, comentario, data: new Date().toISOString() };
+      try { await A.guardarRegisto(t); } catch (erro) { alert('Não foi possível guardar: ' + erro.message); }
+      const y = scrollY; ecraCorrecoes(filtro); scrollTo(0, y);
+    };
+    $app.querySelectorAll('[data-concordo]').forEach(bt => bt.onclick = () => guardarReacao(+bt.dataset.concordo, true));
+    $app.querySelectorAll('[data-discordo]').forEach(bt => bt.onclick = () => {
+      const caixa = document.getElementById('rc-' + bt.dataset.discordo);
+      caixa.hidden = false; caixa.querySelector('textarea').focus();
+    });
+    $app.querySelectorAll('[data-enviar]').forEach(bt => bt.onclick = () => {
+      const txt = document.querySelector(`#rc-${bt.dataset.enviar} textarea`).value.trim();
+      if (!txt) { document.querySelector(`#rc-${bt.dataset.enviar} textarea`).placeholder = 'Escreve primeiro porque não concordas 🙂'; return; }
+      guardarReacao(+bt.dataset.enviar, false, txt);
+    });
+    $app.querySelectorAll('[data-mudar]').forEach(bt => bt.onclick = () => {
+      const { r } = mostrar[+bt.dataset.mudar];
+      r.reacao = { ...r.reacao, editar: true };
+      const y = scrollY; ecraCorrecoes(filtro); scrollTo(0, y);
+    });
     // Marca como vistas as correções novas (para o aviso da página inicial desaparecer).
     lista.filter(t => !t.correcao?.vista).forEach(t => { t.correcao.vista = new Date().toISOString(); A.guardarRegisto(t).catch(() => {}); });
   }
@@ -1120,7 +1202,11 @@ const App = (() => {
       if (!t) continue;
       for (const rc of ct.respostas || []) {
         const r = t.respostas.find(x => x.id === rc.id);
-        if (r) Object.assign(r, { pontuacao: Math.max(0, Math.min(1, +rc.pontuacao || 0)), comentario: rc.comentario || '' });
+        if (r) {
+          Object.assign(r, { pontuacao: Math.max(0, Math.min(1, +rc.pontuacao || 0)), comentario: rc.comentario || '' });
+          // Resposta a uma contestação dela ("Não concordo"), numa revisão seguinte.
+          if (rc.respostaContestacao) Object.assign(r, { respostaRevisao: rc.respostaContestacao, respostaRevisaoEm: new Date().toISOString() });
+        }
       }
       t.respostas.forEach(r => {
         if (r.pontuacao == null) r.pontuacao = 0;
@@ -1433,6 +1519,18 @@ const App = (() => {
             <td class="acoes-tabela"><a class="btn" href="#/real/${t.id}">Ver</a>
               ${t.estado !== 'corrigido' ? `<button class="btn" data-pedido="${t.id}">⬇️ Só este</button>` : ''}</td></tr>`).join('')}</tbody>
           </table></div>
+          ${(() => {
+            const contest = e.testes.flatMap(t => t.respostas.filter(r => r.reacao?.concorda === false).map(r => ({ t, r })));
+            const semResposta = contest.filter(({ r }) => !r.respostaRevisao || r.respostaRevisaoEm < r.reacao.data);
+            const concorda = e.testes.flatMap(t => t.respostas.filter(r => r.reacao?.concorda === true)).length;
+            if (!contest.length && !concorda) return '';
+            const perg = id => Object.values(livros).flatMap(l => l.perguntas).find(q => q.id === id);
+            return `<div class="feedback ${semResposta.length ? 'mau' : 'ajuda'}">
+              <b>Reações da Leonor às correções:</b> 👍 concordou com ${concorda} · 👎 não concordou com ${contest.length}${semResposta.length ? ` — <b>${semResposta.length} à espera de resposta</b> (entram na próxima revisão)` : ''}.
+              ${semResposta.length ? `<ul class="rever">${semResposta.map(({ t, r }) => `<li><b>${esc(r.pergunta || perg(r.id)?.pergunta || '')}</b><br>
+                Resposta dela: ${esc(r.texto ?? '')} · nota final ${Math.round((r.pontuacao || 0) * 100)}%<br>💬 Ela diz: «${esc(r.reacao.comentario)}»</li>`).join('')}</ul>` : ''}
+            </div>`;
+          })()}
           <p class="muted">As notas finais aparecem aqui depois da revisão das respostas, que também confirma (ou não) as autoavaliações dela.
             Em alternativa: descarrega o pedido de correção e, depois, carrega aqui o ficheiro da correção.</p>
           <p><label class="btn">📥 Carregar correção<input type="file" id="correcao" accept=".json,application/json" hidden></label> <span id="msg-correcao" class="muted"></span></p>`

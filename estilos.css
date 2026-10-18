@@ -118,7 +118,25 @@ table.mini-niveis { border-collapse: collapse; font-size: 12px; flex: none; widt
 .mini-niveis th, .mini-niveis td { padding: 2px 6px; text-align: center; border: 1px solid var(--linha); min-width: 38px; }
 .mini-niveis th { font-weight: 600; color: var(--muted); background: var(--fundo); }
 .mini-niveis sup { font-size: 9px; }
-.aviso-correcoes { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; border: 2px solid var(--prim); margin: 10px 0 16px; text-align: left; }
+.filtros-correcao { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.filtros-correcao .filtro { text-decoration: none; color: var(--texto); border: 1px solid var(--linha); border-radius: 999px; padding: 6px 12px; background: var(--cartao); }
+.filtros-correcao .filtro.ativo { border-color: var(--prim); background: var(--prim); color: #fff; }
+.filtros-correcao .contagem { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; background: rgba(0,0,0,.08); font-size: 13px; text-align: center; }
+.filtros-correcao .filtro.ativo .contagem { background: rgba(255,255,255,.25); }
+.notas-comparar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; font-size: 17px; }
+.notas-comparar .seta { color: var(--muted); }
+.nota-final { padding: 3px 10px; border-radius: 8px; }
+.nota-final.bom { background: #e3f6e8; } .nota-final.medio { background: #fff4d6; } .nota-final.mau { background: #fde7e4; }
+.comentario-revisao { background: var(--fundo); border-left: 4px solid var(--prim); padding: 8px 10px; border-radius: 6px; }
+.comentario-revisao.resposta { border-left-color: #8bd3a0; }
+.reacao { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-top: 1px dashed var(--linha); padding-top: 10px; margin-top: 10px; }
+.reacao-comentario { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; }
+.reacao-comentario[hidden] { display: none; }
+.reacao-comentario textarea { width: 100%; font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--linha); }
+.reacao-feita { border-top: 1px dashed var(--linha); padding-top: 10px; margin-top: 10px; }
+.reacao-feita.nao { color: var(--mau); }
+.btn.mini { padding: 3px 10px; font-size: 13px; margin-left: 8px; }
+.aviso-correcoes {display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; border: 2px solid var(--prim); margin: 10px 0 16px; text-align: left; }
 .legenda-niveis {font-size: 13px; }
 .legenda-niveis .cel-nivel { padding: 1px 6px; border-radius: 4px; }
 .cel-nivel.provisorio {background: #ece7fb !important; color: #5b3fb5; font-style: italic; outline: 1px dashed #9a86d8; outline-offset: -3px; }
