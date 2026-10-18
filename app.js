@@ -1582,7 +1582,7 @@ const App = (() => {
     }
     try {
       await A.iniciar(db);
-      const catalogo = await (await fetch('catalogo.json')).json();
+      const catalogo = await (await fetch('catalogo.json', { cache: 'no-cache' })).json();
       for (const d of catalogo.disciplinas) {
         disciplinas[d.id] = { ...d, livros: d.livros.map(l => l.id) };
         for (const l of d.livros) livros[l.id] = await carregarLivro(l, d.id);
