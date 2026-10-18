@@ -1433,8 +1433,8 @@ const App = (() => {
             <td class="acoes-tabela"><a class="btn" href="#/real/${t.id}">Ver</a>
               ${t.estado !== 'corrigido' ? `<button class="btn" data-pedido="${t.id}">⬇️ Só este</button>` : ''}</td></tr>`).join('')}</tbody>
           </table></div>
-          <p class="muted">Para dar as notas finais, pede ao Claude <b>"revê os testes da Leonor"</b> — ele lê as respostas, corrige e põe aqui as notas finais (e confirma, ou não, as autoavaliações dela).
-            Se ele não conseguir aceder, usa os botões: descarrega o pedido, entrega-lho, e carrega aqui o ficheiro da correção que ele devolver.</p>
+          <p class="muted">As notas finais aparecem aqui depois da revisão das respostas, que também confirma (ou não) as autoavaliações dela.
+            Em alternativa: descarrega o pedido de correção e, depois, carrega aqui o ficheiro da correção.</p>
           <p><label class="btn">📥 Carregar correção<input type="file" id="correcao" accept=".json,application/json" hidden></label> <span id="msg-correcao" class="muted"></span></p>`
         : '<p class="muted">Ainda não há testes para corrigir. Os testes "✍️ Como no teste da escola" e "🎓 Teste real" aparecem aqui.</p>'}
 
