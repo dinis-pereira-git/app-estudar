@@ -118,7 +118,13 @@ table.mini-niveis { border-collapse: collapse; font-size: 12px; flex: none; widt
 .mini-niveis th, .mini-niveis td { padding: 2px 6px; text-align: center; border: 1px solid var(--linha); min-width: 38px; }
 .mini-niveis th { font-weight: 600; color: var(--muted); background: var(--fundo); }
 .mini-niveis sup { font-size: 9px; }
-.pensar-primeiro { text-align: center; background: var(--fundo); border: 2px dashed var(--linha); border-radius: 12px; padding: 18px; margin: 10px 0; }
+.mini-niveis.clicavel td[data-falta] { cursor: pointer; }
+.mini-niveis.clicavel td[data-falta]:hover { outline: 2px solid var(--prim); outline-offset: -2px; }
+.falta-linha { list-style: none; border: 2px solid var(--prim); border-radius: 12px; padding: 12px 14px; margin: 4px 0 12px; background: var(--cartao); }
+.lista-falta { margin: 8px 0 12px; padding-left: 22px; }
+.lista-falta li { padding: 4px 0; }
+.lista-falta small { display: block; }
+.pensar-primeiro {text-align: center; background: var(--fundo); border: 2px dashed var(--linha); border-radius: 12px; padding: 18px; margin: 10px 0; }
 .pensar-primeiro p { margin-top: 0; }
 .aviso-gravar {background: #fff4d6; border-bottom: 2px solid #f0b400; padding: 10px 16px; text-align: center; font-weight: 600; }
 .aviso-gravar[hidden] { display: none; }

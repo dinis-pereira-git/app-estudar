@@ -261,6 +261,8 @@ const App = (() => {
   $ampliar.addEventListener('click', () => { $ampliar.hidden = true; });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') $ampliar.hidden = true; });
   $app.addEventListener('click', e => { const z = e.target.closest('[data-ampliar]'); if (z) ampliar(z.dataset.ampliar, z.dataset.zona); });
+  // Células das tabelas de progresso: abrem "o que falta" dessa lição/estilo/nível (na mesma página).
+  $app.addEventListener('click', e => { const c = e.target.closest('[data-falta]'); if (c) location.hash = c.dataset.falta; });
   // O recorte só sabe a sua proporção quando a imagem da página carrega.
   $app.addEventListener('load', e => {
     const caixa = e.target.closest?.('.recorte');
@@ -293,7 +295,9 @@ const App = (() => {
 
   // ---------- rotas ----------
   function rota() {
-    const [ecra = '', a, b, c] = (location.hash || '#/').slice(2).split('/');
+    const [ecra = '', a, b, c, d, e] = (location.hash || '#/').slice(2).split('/');
+    // "O que falta" de uma lição (#/t/<id>/falta/<pág>/<estilo>/<nível>): abre na própria página do teste/livro.
+    faltaAberta = ecra === 't' && b === 'falta' ? { n: +c, estilo: d, nivel: e === 'todos' ? 'todos' : +e } : null;
     contexto = null;
     document.querySelectorAll('.barra nav a').forEach(el => {
       const alvo = el.getAttribute('href').slice(2);
@@ -593,22 +597,67 @@ const App = (() => {
           <a class="btn ${a ? '' : 'prim'}" href="#/estudar/${lid}/${g.nums[0]}${a ? '/' + a.id : ''}">📖 Estudar</a>
           ${a ? `<a class="btn prim" href="#/testar/${a.id}/${g.nums[0]}">✏️ Testar</a>` : ''}
         </div>
-        ${miniProgresso(lid, g.nums)}
-      </li>`;
+        ${miniProgresso(lid, g.nums, a)}
+      </li>
+      ${a && faltaAberta && faltaAberta.n === g.nums[0] ? blocoFalta(lid, g.nums, a, faltaAberta) : ''}`;
   }
 
   // O mesmo progresso da tabela do painel, em pequeno: % das perguntas certas sem ajuda,
   // por estilo (✍️ escrita / ⚡ escolha múltipla) e nível. Mostra o que falta praticar.
-  function miniProgresso(lid, nums) {
+  // Com a (teste da escola ou livro), cada célula abre "o que falta" desse estilo/nível, na mesma página.
+  function miniProgresso(lid, nums, a) {
     const p = progressoNiveis(lid, nums);
-    const cel = c => celulaNivel(c, true);
-    const media = e => celulaMedia(p, e);
+    const ligar = (td, estilo, nivel) => a ? td.replace('<td ', `<td data-falta="#/t/${a.id}/falta/${nums[0]}/${estilo}/${nivel}" `) : td;
+    const cel = (e, n) => ligar(celulaNivel(p[e + n], true), e, n);
+    const media = e => ligar(celulaMedia(p, e), e, 'todos');
     return `
-      <table class="mini-niveis" title="Perguntas certas sem ajuda, por estilo e nível">
+      <table class="mini-niveis${a ? ' clicavel' : ''}" title="${a ? 'Clica numa célula para ver o que falta' : 'Perguntas certas sem ajuda, por estilo e nível'}">
         <tr><th></th><th>★</th><th>★★</th><th>★★★</th><th title="Melhor nota nos testes mistos desta lição">Misto</th><th>Média</th></tr>
-        <tr><th title="Respostas escritas (como na escola)">✍️</th>${[1, 2, 3].map(n => cel(p['escola' + n])).join('')}${celulaMisto(lid, nums, 'escola')}${media('escola')}</tr>
-        <tr><th title="Escolha múltipla">⚡</th>${[1, 2, 3].map(n => cel(p['escolha' + n])).join('')}${celulaMisto(lid, nums, 'escolha')}${media('escolha')}</tr>
+        <tr><th title="Respostas escritas (como na escola)">✍️</th>${[1, 2, 3].map(n => cel('escola', n)).join('')}${celulaMisto(lid, nums, 'escola')}${media('escola')}</tr>
+        <tr><th title="Escolha múltipla">⚡</th>${[1, 2, 3].map(n => cel('escolha', n)).join('')}${celulaMisto(lid, nums, 'escolha')}${media('escolha')}</tr>
       </table>`;
+  }
+
+  // ---------- o que falta numa lição ----------
+  // Perguntas da lição (num estilo e nível) que ela ainda não acertou sem ajuda: nunca lhe saíram, errou, ou só com ajuda.
+  let faltaAberta = null; // { n: 1.ª página da lição, estilo: 'escola'|'escolha', nivel: 1|2|3|'todos' }
+  function perguntasEmFalta(lid, nums, estilo, nivel) {
+    const tent = tentativasPorPergunta();
+    return livros[lid].perguntas
+      .filter(q => nums.includes(q.pagina) && (nivel === 'todos' || q.nivel === +nivel) && (estilo === 'escolha' ? q.opcoes : q.escrita))
+      .map(q => {
+        const ts = (tent[q.id] || []).filter(x => x.estilo === estilo);
+        if (ts.some(x => x.boa)) return null;
+        return { q, estado: !ts.length ? 'nunca' : ts.some(x => x.ajuda) && ts.every(x => x.ajuda) ? 'ajuda' : 'errou', vezes: ts.length };
+      }).filter(Boolean);
+  }
+  const ESTADO_FALTA = { nunca: '⚪ Ainda não te saiu', errou: '❌ Erraste', ajuda: '💡 Só com ajuda' };
+  function blocoFalta(lid, nums, a, f) {
+    const lista = perguntasEmFalta(lid, nums, f.estilo, f.nivel);
+    const nomeNivel = f.nivel === 'todos' ? 'todos os níveis' : `nível ${NIVEL[f.nivel]}`;
+    const nomeEstilo = f.estilo === 'escolha' ? '⚡ escolha múltipla' : '✍️ escrita';
+    return `
+      <li class="falta-linha" id="falta-aberta">
+        <div class="seccao-topo"><b>🧩 O que falta · ${nomeEstilo} · ${nomeNivel}</b><a class="btn mini" href="#/t/${a.id}">Fechar</a></div>
+        ${lista.length ? `
+          <ol class="lista-falta">${lista.map(x => `<li>${esc(f.estilo === 'escola' ? x.q.escrita.pergunta || x.q.pergunta : x.q.pergunta)}
+            <small class="muted">${ESTADO_FALTA[x.estado]}${f.nivel === 'todos' ? ` · ${NIVEL[x.q.nivel]}` : ''} · pág. ${x.q.pagina}</small></li>`).join('')}</ol>
+          <button class="btn prim" data-treinar-falta="${lista.length}">✏️ Treinar só estas (${lista.length})</button>
+          <span class="muted">— tenta lembrar-te da resposta antes de começares!</span>`
+          : `<p>🎉 Já acertaste todas as perguntas de ${nomeNivel} em ${nomeEstilo} nesta lição!</p>`}
+      </li>`;
+  }
+  function ligarFalta(lid, nums, a, f) {
+    document.querySelector('[data-treinar-falta]')?.addEventListener('click', () => {
+      const lista = perguntasEmFalta(lid, nums, f.estilo, f.nivel);
+      teste = {
+        avaliacao: a, livro: lid, alvo: nums, paginas: paginasDaAvaliacao(a), dificuldade: f.nivel === 'todos' ? 'misto' : DIF_DE[f.nivel],
+        exato: f.nivel !== 'todos', foco: 'falta', modo: f.estilo === 'escolha' ? 'rapido' : 'escola', inicio: new Date().toISOString(),
+        perguntas: Motor.preparar(lista.map(x => x.q)), indice: 0, respostas: [], ajuda: false, respondida: null,
+      };
+      location.hash = '#/teste';
+    });
+    document.getElementById('falta-aberta')?.scrollIntoView({ block: 'center' });
   }
 
   // ---------- um teste da escola ----------
@@ -650,6 +699,13 @@ const App = (() => {
       sec.ligar(() => ecraAvaliacao(a, filtroCorrecoes));
       document.getElementById('sec-correcoes')?.scrollIntoView();
     }
+    abrirFaltaSeHouver(a, pags);
+  }
+
+  function abrirFaltaSeHouver(a, pags) {
+    if (!faltaAberta) return;
+    const g = gruposLicoes(a.livro, pags).find(g => g.nums[0] === faltaAberta.n);
+    if (g) ligarFalta(a.livro, g.nums, a, faltaAberta);
   }
 
   // ---------- livro inteiro ----------
@@ -663,6 +719,7 @@ const App = (() => {
         ${listaPorLicao(lid, l.paginas.map(p => p.numero), avaliacaoLivro(lid))}
         ${blocoCustam(avaliacaoLivro(lid))}
       </section>`);
+    abrirFaltaSeHouver(avaliacaoLivro(lid), l.paginas.map(p => p.numero));
   }
 
   // Agrupa páginas seguidas da mesma lição.
@@ -1160,7 +1217,7 @@ const App = (() => {
       avaliacao: a.id, avaliacaoNome: nomeAvaliacao(a), modo: teste.modo, estado: real ? 'por corrigir' : escola ? 'por rever' : 'feito',
       tipo: teste.tipoTreino || (teste.alvo == null ? 'global' : 'licao'), pagina: teste.alvo?.[0] ?? null, licao: teste.alvo,
       paginas: [teste.paginas[0], teste.paginas[teste.paginas.length - 1]],
-      dificuldade: teste.dificuldade, exato: teste.exato, total: teste.respostas.length, ...nota, respostas: teste.respostas,
+      dificuldade: teste.dificuldade, exato: teste.exato, foco: teste.foco, total: teste.respostas.length, ...nota, respostas: teste.respostas,
     };
     A.registarTeste(teste.registo);
     location.hash = '#/resultado';
@@ -1225,7 +1282,7 @@ const App = (() => {
   const porCorrigir = t => corrigivel(t) && t.estado !== 'corrigido';
   const testeReal = id => A.estado.testes.find(t => corrigivel(t) && String(t.id) === String(id));
   const perguntaDoBanco = (t, qid) => livros[t.livro]?.perguntas.find(q => q.id === qid);
-  const nomeTreino = t => t.tipo === 'custam' ? '🎯 As que mais custam' : t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`;
+  const nomeTreino = t => t.foco === 'falta' ? `🧩 O que faltava · ${intervalo(t.licao || [t.pagina])}` : t.tipo === 'custam' ? '🎯 As que mais custam' : t.tipo === 'global' ? `Global (págs. ${t.paginas[0]}–${t.paginas[1]})` : t.licao ? `Lição (${intervalo(t.licao)})` : `Página ${t.pagina}`;
 
   function ecraTesteReal(t) {
     const corrigido = t.estado === 'corrigido';
