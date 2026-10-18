@@ -164,8 +164,8 @@ const App = (() => {
     const titulo = `${c.certas} de ${c.total} perguntas certas sem ajuda` + (prov ? `; mais ${c.pend} que ela deu como certas, à espera de revisão (sem elas: ${v}%)` : '') + (c.ajuda ? `; mais ${c.ajuda} só com ajuda` : '');
     return `<td class="cel-nivel ${corPct(prov ? vp : v)}${prov ? ' provisorio' : ''}" title="${titulo}">${prov ? vp : v}%${prov ? '<sup>✋</sup>' : ''}${c.ajuda ? (compacta ? '<sup>💡</sup>' : `<small> +${c.ajuda}💡</small>`) : ''}</td>`;
   }
-  // Coluna "Misto": melhor nota dos testes mistos da lição, por estilo (✍️ escola / ⚡ rápido).
-  // Usa a nota final; se só houver testes por rever, mostra a autoavaliação a roxo ✋.
+  // Coluna "Misto": MELHOR nota dos testes mistos da lição, por estilo (✍️ escola / ⚡ rápido) — o pai prefere a melhor,
+  // para a motivar. Usa a nota final; se só houver testes por rever, mostra a autoavaliação a roxo ✋.
   function celulaMisto(lid, nums, estilo) {
     const modo = estilo === 'escolha' ? 'rapido' : 'escola';
     const ts = A.estado.testes.filter(t => t.livro === lid && t.dificuldade === 'misto' && t.modo === modo && t.tipo !== 'global'
@@ -968,6 +968,9 @@ const App = (() => {
     const q = teste.perguntas[teste.indice];
     if (ehEscrita(q)) return ecraPerguntaEscrita(q);
     const r = teste.respondida;
+    // Primeiro só a pergunta: as opções aparecem quando ela carrega em "Mostrar respostas"
+    // (para pensar na resposta antes de a procurar nas opções). Verdadeiro/falso mostra logo.
+    const verOpcoes = r != null || teste.opcoesVisiveis || q.tipo === 'vf';
 
     const opcoes = q.opcoes.map((o, i) => {
       let cls = '';
@@ -995,12 +998,17 @@ const App = (() => {
         ${topoPergunta(q)}
         ${imagemPergunta(q)}
         <h2 class="enunciado">${esc(q.pergunta)}</h2>
-        <div class="opcoes">${opcoes}</div>
+        ${verOpcoes ? `<div class="opcoes">${opcoes}</div>` : `
+          <div class="pensar-primeiro">
+            <p>🤔 <b>Pensa na resposta antes de veres as opções.</b><br><span class="muted">Quando tiveres a tua resposta na cabeça, carrega no botão e vê se ela está lá.</span></p>
+            <button class="btn prim grande" id="mostrar-opcoes">👀 Mostrar respostas</button>
+          </div>`}
         ${r == null && !teste.ajuda ? '<button class="btn ajuda-btn" id="ajuda">💡 Preciso de ajuda</button>' : ''}
         ${feedback}
       </section>`);
 
     ligarAcoesTeste(q);
+    document.getElementById('mostrar-opcoes')?.addEventListener('click', () => { teste.opcoesVisiveis = true; ecraPergunta(); });
     $app.querySelectorAll('[data-op]').forEach(bt => bt.onclick = () => responder(+bt.dataset.op));
     document.getElementById('ajuda')?.addEventListener('click', () => { teste.ajuda = true; ecraPergunta(); });
     document.getElementById('seguinte')?.addEventListener('click', seguinte);
@@ -1131,6 +1139,7 @@ const App = (() => {
     teste.ajuda = false;
     teste.respondida = null;
     teste.rascunho = '';
+    teste.opcoesVisiveis = false;
     if (teste.indice < teste.perguntas.length) return ecraPergunta();
 
     const a = teste.avaliacao;

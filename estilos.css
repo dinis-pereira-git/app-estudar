@@ -118,7 +118,9 @@ table.mini-niveis { border-collapse: collapse; font-size: 12px; flex: none; widt
 .mini-niveis th, .mini-niveis td { padding: 2px 6px; text-align: center; border: 1px solid var(--linha); min-width: 38px; }
 .mini-niveis th { font-weight: 600; color: var(--muted); background: var(--fundo); }
 .mini-niveis sup { font-size: 9px; }
-.aviso-gravar { background: #fff4d6; border-bottom: 2px solid #f0b400; padding: 10px 16px; text-align: center; font-weight: 600; }
+.pensar-primeiro { text-align: center; background: var(--fundo); border: 2px dashed var(--linha); border-radius: 12px; padding: 18px; margin: 10px 0; }
+.pensar-primeiro p { margin-top: 0; }
+.aviso-gravar {background: #fff4d6; border-bottom: 2px solid #f0b400; padding: 10px 16px; text-align: center; font-weight: 600; }
 .aviso-gravar[hidden] { display: none; }
 .detalhe-correcao td {background: var(--fundo); padding: 10px; }
 .detalhe-correcao[hidden] { display: none; }
