@@ -139,7 +139,7 @@ const App = (() => {
     A.estado.testes.forEach(t => t.livro === lid && t.foco !== 'falta' && !porCorrigir(t) && t.respostas.forEach(r => {
       if (r.certa && r.auditoria !== 'mal' && !anulada(t, r)) (r.ajuda ? ajuda : certas)[estiloDe(r)].add(r.id);
     }));
-    A.estado.testes.forEach(t => t.livro === lid && t.foco !== 'falta' && t.modo === 'escola' && porCorrigir(t) && t.respostas.forEach(r => {
+    A.estado.testes.forEach(t => t.livro === lid && t.foco !== 'falta' && (t.modo === 'escola' || t.modo === 'real') && porCorrigir(t) && t.respostas.forEach(r => {
       if (!r.certa) return;
       const auto = autoavaliadas({ respostas: [r] }).length;
       (r.ajuda ? ajuda : auto ? pend : certas)[estiloDe(r)].add(r.id);
@@ -318,6 +318,7 @@ const App = (() => {
     if (ecra === 'teste' && teste) return ecraPergunta();
     if (ecra === 'resultado' && teste?.registo) return ecraResultado();
     if (ecra === 'real' && testeReal(a)) return ecraTesteReal(testeReal(a));
+    if (ecra === 'autocorrecao' && testeReal(a)) return ecraAutocorrecao(testeReal(a));
     if (ecra === 'painel') return ecraPainel();
     if (ecra === 'revisao') return ecraRevisao(a === 'todas');
     if (ecra === 'correcoes') { location.hash = linkAvisoCorrecoes(Object.keys(disciplinas)[0], a); return; } // endereço antigo
@@ -1236,6 +1237,13 @@ const App = (() => {
     // até o pai pedir a revisão ao Claude (como no teste real).
     const escola = teste.modo === 'escola';
     const nota = real ? { pontos: null, porNivel: {}, percent: null } : calcularNota(teste.respostas);
+    if (real) {
+      // Pré-correção automática das respostas curtas (a Leonor confirma tudo na autocorreção a seguir).
+      teste.respostas.forEach(r => {
+        const q = teste.perguntas.find(x => x.id === r.id);
+        if (r.modo === 'curta' && q?.escrita?.aceites) r.preCorrecao = verificarCurta(r.texto, q.escrita.aceites) ? 1 : 0;
+      });
+    }
     if (escola) {
       teste.respostas.forEach(r => { r.pontuacaoAuto = r.pontuacao; });
       Object.assign(nota, { autoPercent: nota.percent, autoPontos: nota.pontos, percent: null, pontos: null });
@@ -1254,17 +1262,7 @@ const App = (() => {
   // ---------- resultado ----------
   function ecraResultado() {
     const t = teste.registo;
-    if (t.modo === 'real') {
-      return render(`
-        <section class="cartao centro">
-          <h1>📝 Teste entregue!</h1>
-          <p>Respondeste a ${t.total} perguntas. Quando o pai pedir a correção, vais ver aqui a nota e um comentário a cada resposta.</p>
-          <div class="linha-botoes">
-            <a class="btn prim" href="#/real/${t.id}">Ver as minhas respostas</a>
-            <a class="btn" href="#/t/${t.avaliacao}">Voltar ao teste</a>
-          </div>
-        </section>`);
-    }
+    if (t.modo === 'real') { location.hash = `#/autocorrecao/${t.id}`; return; }
     // No modo escola a nota mostrada é a da autoavaliação; a final fica pendente da revisão.
     const pendente = t.estado === 'por rever';
     const p = t.percent ?? t.autoPercent;
@@ -1303,6 +1301,92 @@ const App = (() => {
       </section>`);
   }
 
+  // ---------- autocorreção do teste real ----------
+  // Ao entregar o teste real, as respostas curtas já vêm pré-corrigidas (ela pode dizer "a minha também está certa")
+  // e nas de explicar ela marca os pontos-chave. Fica com uma nota provisória (✋) até à revisão.
+  function ecraAutocorrecao(t) {
+    const feita = t.autoPercent != null;
+    const linhas = t.respostas.map((r, i) => {
+      const q = perguntaDoBanco(t, r.id), e = q?.escrita;
+      let corpo = '';
+      if (r.modo === 'curta') {
+        const certa = r.preCorrecao === 1;
+        corpo = `
+          <p>${certa ? '✅ A correção automática deu <b>certa</b>.' : '❌ A correção automática deu <b>errada</b>.'} <span class="muted">Resposta certa: ${esc(e?.modelo || '')}</span></p>
+          ${certa ? '' : `<label class="ponto"><input type="checkbox" data-curta="${i}" ${r.corrigidaPelaAluna ? 'checked' : ''} ${feita ? 'disabled' : ''}> A minha resposta também está certa (diz o mesmo por outras palavras)</label>`}`;
+      } else if (e?.pontos) {
+        const precisa = Math.min(e.minimo || e.pontos.length, e.pontos.length);
+        corpo = `
+          <p class="muted">Marca os pontos-chave que a tua resposta tem, mesmo que escritos com outras palavras.${precisa < e.pontos.length ? ` <b>Basta ${precisa}.</b>` : ''}</p>
+          ${e.pontos.map((p, k) => `<label class="ponto"><input type="checkbox" data-ponto-real="${i}:${k}" ${(r.pontosMarcados || []).includes(k) ? 'checked' : ''} ${feita ? 'disabled' : ''}> ${esc(p)}</label>`).join('')}
+          <p><b>Resposta modelo:</b> ${esc(e.modelo)}</p>`;
+      }
+      return `
+        <li class="cartao-revisao">
+          <b>${esc(r.pergunta || q?.pergunta || '')}</b>
+          <div class="a-tua"><b>A tua resposta:</b> ${esc(r.texto) || '<i>em branco</i>'}</div>
+          ${corpo}
+        </li>`;
+    }).join('');
+    render(`
+      <section class="cartao">
+        <a href="#/t/${t.avaliacao}" class="voltar">← Voltar ao teste</a>
+        <h1>🎓 Teste entregue — autocorreção</h1>
+        <p class="muted">Compara as tuas respostas com as certas. A nota que sair é provisória: a nota final vem depois da revisão.</p>
+        ${feita ? `<div class="feedback ajuda">✋ A tua nota provisória: <b>${t.autoPercent}%</b>. Agora é esperar pela revisão.</div>` : ''}
+        <ol class="respostas-real">${linhas}</ol>
+        ${feita ? `<a class="btn prim" href="#/t/${t.avaliacao}">Voltar ao teste</a>` : '<button class="btn prim grande" id="concluir-auto">✅ Concluir autocorreção</button>'}
+        <hr>
+        <p><button class="btn" id="para-notebooklm">⬇️ Descarregar para o NotebookLM</button> <span class="muted">— para pedires feedback ao NotebookLM sozinha.</span></p>
+        ${ajudaNotebookLM}
+      </section>`);
+    document.getElementById('para-notebooklm').onclick = () => descarregarParaNotebookLM(t);
+    document.getElementById('concluir-auto')?.addEventListener('click', async () => {
+      t.respostas.forEach((r, i) => {
+        const e = perguntaDoBanco(t, r.id)?.escrita;
+        if (r.modo === 'curta') {
+          const aluna = document.querySelector(`[data-curta="${i}"]`)?.checked;
+          r.corrigidaPelaAluna = !!aluna;
+          if (aluna) r.autoavaliada = true;
+          r.pontuacaoAuto = r.preCorrecao === 1 || aluna ? 1 : 0;
+        } else if (e?.pontos) {
+          const marc = [...document.querySelectorAll(`[data-ponto-real^="${i}:"]:checked`)].map(c => +c.dataset.pontoReal.split(':')[1]);
+          const precisa = Math.min(e.minimo || e.pontos.length, e.pontos.length);
+          Object.assign(r, { pontosMarcados: marc, marcados: marc.length, autoavaliada: true, confirmada: true, pontuacaoAuto: Math.min(1, marc.length / precisa) });
+        } else r.pontuacaoAuto = 0;
+        r.certa = r.pontuacaoAuto === 1;
+      });
+      const nota = calcularNota(t.respostas.map(r => ({ ...r, pontuacao: r.pontuacaoAuto })));
+      Object.assign(t, { autoPercent: nota.percent, autoPontos: nota.pontos });
+      try { await A.guardarRegisto(t); } catch (erro) { alert('Não foi possível guardar: ' + erro.message); }
+      ecraAutocorrecao(t);
+      scrollTo(0, 0);
+    });
+  }
+
+  // Ficheiro de texto para a Leonor pôr no NotebookLM (o caderno tem o livro como fonte) e pedir feedback sozinha.
+  function descarregarParaNotebookLM(t) {
+    const linhas = [
+      `# O meu teste de HGP — ${nomeTreino(t)} (${dataCurta(t.data)})`,
+      '',
+      '**Pedido ao NotebookLM:** Sou a Leonor, tenho 11 anos e estou no 6.º ano. Isto são as minhas respostas a um teste de',
+      'História e Geografia de Portugal. Corrige cada resposta usando só as páginas do livro que estão nas fontes:',
+      'diz se está certa, meio certa ou errada, explica em poucas palavras o que faltou e onde está no livro (página).',
+      'Avalia a ideia e não as palavras exatas, e não descontes erros de escrita. No fim, diz o que devo estudar mais.',
+      '',
+      ...t.respostas.flatMap((r, i) => {
+        const q = perguntaDoBanco(t, r.id);
+        return [`## Pergunta ${i + 1} (página ${q?.pagina ?? '?'})`, r.pergunta || q?.escrita?.pergunta || q?.pergunta || '', '', `**A minha resposta:** ${r.texto || '(em branco)'}`, ''];
+      }),
+    ];
+    const blob = new Blob([linhas.join('\n')], { type: 'text/markdown' });
+    const el = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `teste-HGP-${t.data.slice(0, 10)}-${t.id}.md` });
+    el.click();
+    URL.revokeObjectURL(el.href);
+  }
+  const ajudaNotebookLM = `<p class="muted">No NotebookLM: abre o caderno de HGP → "Adicionar fontes" → "Carregar ficheiros" → escolhe este ficheiro.
+    Depois, no chat, escreve: <i>«Corrige o meu teste que está na fonte teste-HGP»</i>.</p>`;
+
   // ---------- correção pelo Claude: teste real e testes "como na escola" ----------
   // O teste real não tem nota nenhuma até ser corrigido; o "como na escola" tem a nota da autoavaliação
   // e fica com a nota final pendente ("por rever") até chegar a correção.
@@ -1326,6 +1410,9 @@ const App = (() => {
           ? `<p class="muted">Nota final</p><div class="nota ${t.percent >= 70 ? 'bom' : t.percent >= 50 ? 'medio' : 'mau'}">${t.percent}%</div>
              ${t.correcao?.comentarioGeral ? `<div class="feedback ajuda"><b>Comentário:</b> ${esc(t.correcao.comentarioGeral)}</div>` : ''}`
           : `<div class="feedback ajuda">⏳ ${real ? 'Ainda por corrigir.' : 'Nota final pendente: falta a revisão.'}</div>`}
+        ${real && t.autoPercent == null && !corrigido ? `<p><a class="btn prim" href="#/autocorrecao/${t.id}">✋ Fazer a autocorreção</a></p>` : ''}
+        <p><button class="btn" id="para-notebooklm">⬇️ Descarregar para o NotebookLM</button></p>
+        ${ajudaNotebookLM}
         <ol class="respostas-real">
           ${t.respostas.map(r => {
             const q = perguntaDoBanco(t, r.id);
@@ -1343,6 +1430,7 @@ const App = (() => {
           }).join('')}
         </ol>
       </section>`);
+    document.getElementById('para-notebooklm').onclick = () => descarregarParaNotebookLM(t);
   }
 
   // Ficheiro que o pai entrega ao Claude para corrigir (um teste ou vários de uma vez).
