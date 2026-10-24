@@ -19,6 +19,25 @@
           ]
         }
       ]
+    },
+    {
+      "id": "cn",
+      "nome": "Ciências",
+      "nomeCompleto": "Ciências Naturais",
+      "icone": "🔬",
+      "livros": [
+        {
+          "id": "cn-trocas6",
+          "titulo": "Ciências 6 · Alimentação e Sistema digestivo",
+          "descricao": "Manual de Ciências Naturais do 6.º ano (Raiz Editora), págs. 8–41: matéria do 1.º teste",
+          "base": "2026-2027/Ciencias/CN6-TrocasNutricionais/",
+          "bancos": [
+            "2026-2027/Ciencias/CN6-TrocasNutricionais/perguntas-cn6.json",
+            "2026-2027/Ciencias/CN6-TrocasNutricionais/zonas.json",
+            "2026-2027/Ciencias/CN6-TrocasNutricionais/ajustes-perguntas.json"
+          ]
+        }
+      ]
     }
   ]
 }

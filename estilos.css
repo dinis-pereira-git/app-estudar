@@ -303,3 +303,14 @@ th { color: var(--muted); font-weight: 600; }
   .global { flex-direction: column; align-items: stretch; }
   .dificuldades { grid-template-columns: 1fr; }
 }
+
+/* Legendar uma figura: um campo por número. */
+.legendas { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 14px; width: 100%; }
+.legenda { display: flex; align-items: center; gap: 8px; }
+.legenda input { flex: 1; min-width: 0; padding: 8px 10px !important; font-size: 17px !important; }
+.legenda .num, .legendas-res .num { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--prim); color: #fff; font-weight: 700; }
+.legendas-res { list-style: none; padding-left: 0; margin: 10px 0; }
+.legendas-res li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; }
+.legendas-res .certo { color: var(--ok); font-weight: 700; }
+.ponto.mini { display: inline-flex; padding: 2px 8px; margin: 0; font-size: 14px; background: var(--fundo); }
+.ponto.mini input { width: 16px; height: 16px; }

@@ -608,6 +608,8 @@ const App = (() => {
   // O mesmo progresso da tabela do painel, em pequeno: % das perguntas certas sem ajuda,
   // por estilo (✍️ escrita / ⚡ escolha múltipla) e nível. Mostra o que falta praticar.
   // Com a (teste da escola ou livro), cada célula abre "o que falta" desse estilo/nível, na mesma página.
+  // Livros só com perguntas escritas (Ciências, por decisão do pai) não têm ⚡ escolha múltipla.
+  const temEscolha = lid => livros[lid]?.perguntas.some(q => q.opcoes);
   function miniProgresso(lid, nums, a) {
     const p = progressoNiveis(lid, nums);
     const ligar = (td, estilo, nivel) => a ? td.replace('<td ', `<td data-falta="#/t/${a.id}/falta/${nums[0]}/${estilo}/${nivel}" `) : td;
@@ -617,7 +619,7 @@ const App = (() => {
       <table class="mini-niveis${a ? ' clicavel' : ''}" title="${a ? 'Clica numa célula para ver o que falta' : 'Perguntas certas sem ajuda, por estilo e nível'}">
         <tr><th></th><th>★</th><th>★★</th><th>★★★</th><th title="Melhor nota nos testes mistos desta lição">Misto</th><th>Média</th></tr>
         <tr><th title="Respostas escritas (como na escola)">✍️</th>${[1, 2, 3].map(n => cel('escola', n)).join('')}${celulaMisto(lid, nums, 'escola')}${media('escola')}</tr>
-        <tr><th title="Escolha múltipla">⚡</th>${[1, 2, 3].map(n => cel('escolha', n)).join('')}${celulaMisto(lid, nums, 'escolha')}${media('escolha')}</tr>
+        ${temEscolha(lid) ? `<tr><th title="Escolha múltipla">⚡</th>${[1, 2, 3].map(n => cel('escolha', n)).join('')}${celulaMisto(lid, nums, 'escolha')}${media('escolha')}</tr>` : ''}
       </table>`;
   }
 
@@ -873,7 +875,8 @@ const App = (() => {
         ? `A maior parte das perguntas é desta lição (${intervalo(alvo)}), e algumas são das lições anteriores para não te esqueceres.`
         : `Todas as perguntas são desta lição (${intervalo(alvo)}).`;
     // O teste real é sempre sobre a matéria toda.
-    const modos = alvo == null ? MODOS : { escola: MODOS.escola, rapido: MODOS.rapido };
+    const modos = alvo == null ? { ...MODOS } : { escola: MODOS.escola, rapido: MODOS.rapido };
+    if (!temEscolha(a.livro)) delete modos.rapido;
     const sugerida = alvo ? difSugerida(a.livro, alvo) : null;
     if (!modos[modoEscolhido]) modoEscolhido = 'escola';
 
@@ -914,7 +917,7 @@ const App = (() => {
       const todas = livros[a.livro].perguntas;
       teste = {
         avaliacao: a, livro: a.livro, alvo, paginas, dificuldade, exato: exato && dificuldade !== 'misto' && dificuldade !== 'facil', modo, inicio: new Date().toISOString(),
-        perguntas: Motor.gerar({ perguntas: modo === 'rapido' ? todas : todas.filter(q => q.escrita), historico: A.estado.historico, paginas, alvo, dificuldade, exato }),
+        perguntas: Motor.gerar({ perguntas: modo === 'rapido' ? todas.filter(q => q.opcoes) : todas.filter(q => q.escrita), historico: A.estado.historico, paginas, alvo, dificuldade, exato }),
         indice: 0, respostas: [], ajuda: false, respondida: null,
       };
       location.hash = '#/teste';
@@ -936,7 +939,7 @@ const App = (() => {
 
   function ecraCustam(a) {
     const todas = perguntasQueCustam(a.livro, paginasDaAvaliacao(a)).filter(x => x.estado !== 'resolvida');
-    const modos = { escola: MODOS.escola, rapido: MODOS.rapido };
+    const modos = temEscolha(a.livro) ? { escola: MODOS.escola, rapido: MODOS.rapido } : { escola: MODOS.escola };
     if (!modos[modoEscolhido]) modoEscolhido = 'escola';
     const servem = x => modoEscolhido === 'rapido' ? x.q.opcoes : x.q.escrita;
     const lista = todas.filter(servem).slice(0, TAMANHO_CUSTAM);
@@ -1004,9 +1007,10 @@ const App = (() => {
   // Imagem da pergunta: só o recorte (sem legenda), e sem abrir a página inteira, onde estaria a resposta.
   function imagemPergunta(q) {
     if (!q.imagem) return '';
-    const pg = pagina(teste.livro, q.imagem.pagina);
+    const fig = q.imagem.figura && livros[teste.livro].figuras?.[q.imagem.figura];
+    const pg = fig || pagina(teste.livro, q.imagem.pagina);
     if (!pg) return '';
-    const z = q.imagem.zona;
+    const z = q.imagem.zona || [0, 0, 100, 100];
     return `<div class="imagem-pergunta"><div class="recorte grande" data-zona="${z.join(',')}"><img src="${img(teste.livro, pg)}" alt="Imagem da pergunta" style="${estiloRecorte(z)}"></div></div>`;
   }
 
@@ -1111,12 +1115,27 @@ const App = (() => {
     if (!r) {
       corpo = `
         <form id="f-escrita" class="escrita">
-          ${e.tipo === 'curta'
+          ${e.tipo === 'legenda' ? `<div class="legendas">${e.legendas.map((l, i) => `<label class="legenda"><span class="num">${l.n}</span><input data-leg="${i}" autocomplete="off" spellcheck="false" placeholder="Nome"></label>`).join('')}</div>`
+          : e.tipo === 'curta'
             ? '<input id="resp" autocomplete="off" spellcheck="false" placeholder="Escreve a tua resposta">'
             : '<textarea id="resp" rows="4" placeholder="Escreve a tua resposta com as tuas palavras"></textarea>'}
-          <button class="btn prim">${real ? (ultima ? 'Entregar teste 🏁' : 'Seguinte →') : e.tipo === 'curta' ? 'Responder' : 'Ver a resposta'}</button>
+          <button class="btn prim">${real ? (ultima ? 'Entregar teste 🏁' : 'Seguinte →') : e.tipo === 'explica' ? 'Ver a resposta' : 'Responder'}</button>
         </form>
         ${real ? '' : teste.ajuda ? `<div class="feedback ajuda">${blocoPagina(q)}</div>` : '<button class="btn ajuda-btn" id="ajuda">💡 Preciso de ajuda</button>'}`;
+    } else if (e.tipo === 'legenda') {
+      const certa = r.pontuacao === 1;
+      corpo = `
+        <ol class="legendas-res">${e.legendas.map((l, i) => {
+          const ok = r.legendasCertas[i];
+          return `<li><span class="num">${l.n}</span> ${ok ? '✅' : '❌'} <b>${esc(r.legendas[i]) || '—'}</b>${ok ? '' : ` → <span class="certo">${esc(l.modelo)}</span>
+            <label class="ponto mini"><input type="checkbox" data-leg-ok="${i}" ${r.legendasAluna?.includes(i) ? 'checked' : ''}> a minha também está certa</label>`}</li>`;
+        }).join('')}</ol>
+        <div class="feedback ${certa ? 'bom' : r.pontuacao > 0 ? 'ajuda' : 'mau'}">
+          <h3>${certa ? (teste.ajuda ? '👍 Certo, com ajuda!' : '🎉 Muito bem! Legendaste tudo.') : `🙂 Acertaste ${r.legendasCertas.filter(Boolean).length} de ${e.legendas.length}.`}</h3>
+          <p>${esc(q.explicacao)}</p>
+          ${certa ? '' : blocoPagina(q)}
+          ${botaoSeguinte()}
+        </div>`;
     } else if (e.tipo === 'curta') {
       const certa = r.pontuacao === 1;
       corpo = `
@@ -1163,7 +1182,13 @@ const App = (() => {
     ligarAcoesTeste(q);
 
     const f = document.getElementById('f-escrita');
-    if (f) {
+    if (f && e.tipo === 'legenda') {
+      const campos = [...f.querySelectorAll('[data-leg]')];
+      teste.rascunhoLeg ||= [];
+      campos.forEach((c, i) => { c.value = teste.rascunhoLeg[i] || ''; c.oninput = () => { teste.rascunhoLeg[i] = c.value; }; });
+      campos[0]?.focus();
+      f.onsubmit = ev => { ev.preventDefault(); responderEscrita(q, campos.map(c => c.value.trim())); };
+    } else if (f) {
       const $r = document.getElementById('resp');
       $r.value = teste.rascunho || '';
       $r.oninput = () => { teste.rascunho = $r.value; };
@@ -1172,6 +1197,12 @@ const App = (() => {
     }
     document.getElementById('ajuda')?.addEventListener('click', () => { teste.ajuda = true; ecraPergunta(); });
     document.getElementById('seguinte')?.addEventListener('click', seguinte);
+    $app.querySelectorAll('[data-leg-ok]').forEach(c => c.onchange = () => {
+      r.legendasAluna = [...$app.querySelectorAll('[data-leg-ok]:checked')].map(x => +x.dataset.legOk);
+      pontuarLegenda(e, r);
+      Object.assign(r, { corrigidaPelaAluna: r.legendasAluna.length > 0, autoavaliada: r.legendasAluna.length > 0 });
+      ecraPergunta();
+    });
     document.getElementById('acertei')?.addEventListener('click', () => {
       Object.assign(r, { pontuacao: 1, certa: true, corrigidaPelaAluna: true, autoavaliada: true });
       ecraPergunta();
@@ -1196,9 +1227,21 @@ const App = (() => {
     ecraPergunta();
   }
 
+  // Legendar uma figura: cada número vale o mesmo; "a minha também está certa" conta como certa.
+  function pontuarLegenda(e, r) {
+    const certas = e.legendas.filter((_, i) => r.legendasCertas?.[i] || r.legendasAluna?.includes(i)).length;
+    r.pontuacao = Math.round(100 * certas / e.legendas.length) / 100;
+    r.certa = r.pontuacao === 1;
+    return r.pontuacao;
+  }
+  const textoLegendas = (e, resp) => e.legendas.map((l, i) => `${l.n} – ${resp[i] || '—'}`).join('; ');
+
   function responderEscrita(q, texto) {
     const e = q.escrita;
+    let legendas = null;
+    if (e.tipo === 'legenda') { legendas = texto; texto = textoLegendas(e, legendas); }
     const r = { id: q.id, pagina: q.pagina, nivel: q.nivel, modo: e.tipo, pergunta: e.pergunta || q.pergunta, texto, ajuda: teste.ajuda };
+    if (legendas) Object.assign(r, { legendas, legendasCertas: e.legendas.map((l, i) => verificarCurta(legendas[i], l.aceites)) });
     if (teste.modo === 'real') {
       Object.assign(r, { pontuacao: null, certa: false });
       teste.respostas.push(r);
@@ -1208,7 +1251,7 @@ const App = (() => {
     if (e.tipo === 'curta') {
       r.pontuacao = verificarCurta(texto, e.aceites) ? 1 : 0;
       r.certa = r.pontuacao === 1;
-    }
+    } else if (e.tipo === 'legenda') pontuarLegenda(e, r);
     teste.respostas.push(r);
     teste.respondida = r;
     ecraPergunta();
@@ -1228,6 +1271,7 @@ const App = (() => {
     teste.ajuda = false;
     teste.respondida = null;
     teste.rascunho = '';
+    teste.rascunhoLeg = [];
     teste.opcoesVisiveis = false;
     if (teste.indice < teste.perguntas.length) return ecraPergunta();
 
@@ -1242,6 +1286,7 @@ const App = (() => {
       teste.respostas.forEach(r => {
         const q = teste.perguntas.find(x => x.id === r.id);
         if (r.modo === 'curta' && q?.escrita?.aceites) r.preCorrecao = verificarCurta(r.texto, q.escrita.aceites) ? 1 : 0;
+        if (r.modo === 'legenda' && q?.escrita?.legendas) { r.preCorrecao = pontuarLegenda(q.escrita, r); r.pontuacao = null; r.certa = false; }
       });
     }
     if (escola) {
@@ -1309,7 +1354,12 @@ const App = (() => {
     const linhas = t.respostas.map((r, i) => {
       const q = perguntaDoBanco(t, r.id), e = q?.escrita;
       let corpo = '';
-      if (r.modo === 'curta') {
+      if (r.modo === 'legenda' && e?.legendas) {
+        corpo = `<ol class="legendas-res">${e.legendas.map((l, k) => r.legendasCertas?.[k]
+          ? `<li><span class="num">${l.n}</span> ✅ ${esc(r.legendas[k])}</li>`
+          : `<li><span class="num">${l.n}</span> ❌ ${esc(r.legendas?.[k]) || '—'} → <span class="certo">${esc(l.modelo)}</span>
+             <label class="ponto mini"><input type="checkbox" data-leg-real="${i}:${k}" ${r.legendasAluna?.includes(k) ? 'checked' : ''} ${feita ? 'disabled' : ''}> a minha também está certa</label></li>`).join('')}</ol>`;
+      } else if (r.modo === 'curta') {
         const certa = r.preCorrecao === 1;
         corpo = `
           <p>${certa ? '✅ A correção automática deu <b>certa</b>.' : '❌ A correção automática deu <b>errada</b>.'} <span class="muted">Resposta certa: ${esc(e?.modelo || '')}</span></p>
@@ -1338,13 +1388,17 @@ const App = (() => {
         ${feita ? `<a class="btn prim" href="#/t/${t.avaliacao}">Voltar ao teste</a>` : '<button class="btn prim grande" id="concluir-auto">✅ Concluir autocorreção</button>'}
         <hr>
         <p><button class="btn" id="para-notebooklm">⬇️ Descarregar para o NotebookLM</button> <span class="muted">— para pedires feedback ao NotebookLM sozinha.</span></p>
-        ${ajudaNotebookLM}
+        ${ajudaNotebookLM(t)}
       </section>`);
     document.getElementById('para-notebooklm').onclick = () => descarregarParaNotebookLM(t);
     document.getElementById('concluir-auto')?.addEventListener('click', async () => {
       t.respostas.forEach((r, i) => {
         const e = perguntaDoBanco(t, r.id)?.escrita;
-        if (r.modo === 'curta') {
+        if (r.modo === 'legenda' && e?.legendas) {
+          r.legendasAluna = [...document.querySelectorAll(`[data-leg-real^="${i}:"]:checked`)].map(c => +c.dataset.legReal.split(':')[1]);
+          if (r.legendasAluna.length) Object.assign(r, { corrigidaPelaAluna: true, autoavaliada: true });
+          r.pontuacaoAuto = pontuarLegenda(e, { ...r });
+        } else if (r.modo === 'curta') {
           const aluna = document.querySelector(`[data-curta="${i}"]`)?.checked;
           r.corrigidaPelaAluna = !!aluna;
           if (aluna) r.autoavaliada = true;
@@ -1365,12 +1419,14 @@ const App = (() => {
   }
 
   // Ficheiro de texto para a Leonor pôr no NotebookLM (o caderno tem o livro como fonte) e pedir feedback sozinha.
+  const disciplinaDoTeste = t => disciplinas[livros[t.livro]?.disciplina] || { nome: '', nomeCompleto: '' };
   function descarregarParaNotebookLM(t) {
+    const d = disciplinaDoTeste(t);
     const linhas = [
-      `# O meu teste de HGP — ${nomeTreino(t)} (${dataCurta(t.data)})`,
+      `# O meu teste de ${d.nome} — ${nomeTreino(t)} (${dataCurta(t.data)})`,
       '',
       '**Pedido ao NotebookLM:** Sou a Leonor, tenho 11 anos e estou no 6.º ano. Isto são as minhas respostas a um teste de',
-      'História e Geografia de Portugal. Corrige cada resposta usando só as páginas do livro que estão nas fontes:',
+      `${d.nomeCompleto || d.nome}. Corrige cada resposta usando só as páginas do livro que estão nas fontes:`,
       'diz se está certa, meio certa ou errada, explica em poucas palavras o que faltou e onde está no livro (página).',
       'Avalia a ideia e não as palavras exatas, e não descontes erros de escrita. No fim, diz o que devo estudar mais.',
       '',
@@ -1380,12 +1436,12 @@ const App = (() => {
       }),
     ];
     const blob = new Blob([linhas.join('\n')], { type: 'text/markdown' });
-    const el = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `teste-HGP-${t.data.slice(0, 10)}-${t.id}.md` });
+    const el = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `teste-${d.nome.replace(/s+/g, '-')}-${t.data.slice(0, 10)}-${t.id}.md` });
     el.click();
     URL.revokeObjectURL(el.href);
   }
-  const ajudaNotebookLM = `<p class="muted">No NotebookLM: abre o caderno de HGP → "Adicionar fontes" → "Carregar ficheiros" → escolhe este ficheiro.
-    Depois, no chat, escreve: <i>«Corrige o meu teste que está na fonte teste-HGP»</i>.</p>`;
+  const ajudaNotebookLM = t => `<p class="muted">No NotebookLM: abre o caderno de ${disciplinaDoTeste(t).nome} → "Adicionar fontes" → "Carregar ficheiros" → escolhe este ficheiro.
+    Depois, no chat, escreve: <i>«Corrige o meu teste que está na fonte teste-${disciplinaDoTeste(t).nome.replace(/s+/g, '-')}»</i>.</p>`;
 
   // ---------- correção pelo Claude: teste real e testes "como na escola" ----------
   // O teste real não tem nota nenhuma até ser corrigido; o "como na escola" tem a nota da autoavaliação
@@ -1412,7 +1468,7 @@ const App = (() => {
           : `<div class="feedback ajuda">⏳ ${real ? 'Ainda por corrigir.' : 'Nota final pendente: falta a revisão.'}</div>`}
         ${real && t.autoPercent == null && !corrigido ? `<p><a class="btn prim" href="#/autocorrecao/${t.id}">✋ Fazer a autocorreção</a></p>` : ''}
         <p><button class="btn" id="para-notebooklm">⬇️ Descarregar para o NotebookLM</button></p>
-        ${ajudaNotebookLM}
+        ${ajudaNotebookLM(t)}
         <ol class="respostas-real">
           ${t.respostas.map(r => {
             const q = perguntaDoBanco(t, r.id);
@@ -1597,7 +1653,10 @@ const App = (() => {
     const cartao = ({ t, r }, i) => {
       const q = perguntaPorId[r.id], e = q?.escrita;
       let avaliacao;
-      if (r.modo === 'explica') {
+      if (r.modo === 'legenda' && e?.legendas) {
+        avaliacao = `<p class="muted">Legendas — ☑ as que ela marcou como certas (a correção automática deu errado):</p>
+          <ul class="pontos-auditoria">${e.legendas.map((l, k) => `<li class="${r.legendasAluna?.includes(k) ? 'marcou' : ''}">${r.legendasCertas?.[k] ? '✅' : r.legendasAluna?.includes(k) ? '☑' : '❌'} ${l.n}: ${esc(r.legendas?.[k] || '—')} <span class="muted">(certo: ${esc(l.modelo)})</span></li>`).join('')}</ul>`;
+      } else if (r.modo === 'explica') {
         avaliacao = e?.pontos ? `
           <p class="muted">Pontos-chave — o que ela marcou como presente na resposta:</p>
           <ul class="pontos-auditoria">${e.pontos.map((p, k) => {
@@ -1974,15 +2033,17 @@ const App = (() => {
       };
     });
     const licoes = bancos.flatMap(b => b.licoes || []);
+    // figuras: imagens preparadas a partir do livro (p. ex. o sistema digestivo com números em vez dos nomes, para legendar).
+    const figuras = Object.fromEntries(bancos.flatMap(b => b.figuras || []).map(f => [f.id, f]));
     let url = f => '../' + info.base + f;
     if (db) {
-      const caminhos = paginas.map(p => info.base + p.imagem);
+      const caminhos = [...paginas, ...Object.values(figuras)].map(p => info.base + p.imagem);
       const assinados = await db.storage.from(BUCKET).createSignedUrls(caminhos, 60 * 60 * 12);
       if (assinados.error) throw assinados.error;
       const urls = Object.fromEntries(assinados.data.map(s => [s.path, s.signedUrl]));
       url = f => urls[info.base + f];
     }
-    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, url };
+    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, figuras, url };
   }
 
   async function iniciar() {
