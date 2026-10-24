@@ -34,7 +34,8 @@
           "bancos": [
             "2026-2027/Ciencias/CN6-TrocasNutricionais/perguntas-cn6.json",
             "2026-2027/Ciencias/CN6-TrocasNutricionais/zonas.json",
-            "2026-2027/Ciencias/CN6-TrocasNutricionais/ajustes-perguntas.json"
+            "2026-2027/Ciencias/CN6-TrocasNutricionais/ajustes-perguntas.json",
+            "2026-2027/Ciencias/CN6-TrocasNutricionais/aulas-cn6.json"
           ]
         }
       ]

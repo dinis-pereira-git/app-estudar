@@ -592,6 +592,7 @@ const App = (() => {
           <b>${esc(titulo)}</b> <span class="muted">· ${intervalo(g.nums)}</span>
           <div class="estado">
             ${licaoEstudada(lid, g.nums) ? '<span class="chip ok">✓ Estudada</span>' : '<span class="chip">Por estudar</span>'}
+            ${l.aulas?.[chaveLicao(g.nums)] ? '<span class="chip ok">🎨 Aula com imagens</span>' : ''}
             ${temVideo ? '<span class="chip ok">🎬 Com vídeo</span>' : g.licao?.video ? '<span class="chip">Vídeo em breve</span>' : ''}
             <span class="muted">${nPerg} perguntas</span>
           </div>
@@ -811,6 +812,7 @@ const App = (() => {
     const ant = todasLicoes[idx - 1], seg = todasLicoes[idx + 1];
     const voltar = a ? `<a href="#/t/${a.id}" class="voltar">← ${esc(nomeAvaliacao(a))}</a>` : `<a href="#/l/${lid}" class="voltar">← ${esc(l.titulo)}</a>`;
     const temVideo = licao.videoDrive || licao.videoDriveCurto;
+    const aula = l.aulas?.[chaveLicao(nums)];
     const paginaTeste = nums.find(p => pagsTeste.includes(p));
     const acoesLicao = `
       <div class="acoes-licao">
@@ -836,7 +838,8 @@ const App = (() => {
           ${voltar}
           <h1>${esc(licao.titulo)} <span class="muted titulo-sub">· páginas ${nums[0]}${nums.length > 1 ? ' a ' + nums.at(-1) : ''}</span></h1>
         </div>
-        ${temVideo ? `<div class="cartao video-licao"><h2>🎬 Vídeo da lição</h2>${blocoVideo(l, n)}</div>` : licao.video ? '<p class="muted">🎬 O vídeo desta lição ainda não está pronto.</p>' : ''}
+        ${aula ? '<div class="cartao video-licao"><h2>🎨 Aula com as imagens do livro</h2><div id="aula-visual"></div></div>' : ''}
+        ${temVideo ? `<div class="cartao video-licao"><h2>🎬 Vídeo da lição (NotebookLM)</h2>${blocoVideo(l, n)}</div>` : licao.video ? '<p class="muted">🎬 O vídeo do NotebookLM desta lição ainda não está pronto.</p>' : ''}
         <p class="muted">Vê o vídeo e lê as páginas com atenção (clica numa página para a ver em grande). Depois marca a lição como estudada e testa-te.</p>
         ${acoesLicao}
         ${paginasHtml}
@@ -848,6 +851,10 @@ const App = (() => {
       </section>`);
     $app.querySelectorAll('[data-estudei]').forEach(bt => bt.onclick = () => { nums.forEach(p => A.marcarEstudada(lid, p)); ecraEstudar(lid, n, a); });
     $app.querySelectorAll('[data-desmarcar]').forEach(bt => bt.onclick = () => { nums.forEach(p => A.desmarcarEstudada(lid, p)); ecraEstudar(lid, n, a); });
+    if (aula) Aulas.montar(document.getElementById('aula-visual'), aula, {
+      urlPagina: p => img(lid, pagina(lid, p)),
+      urlAudio: k => l.url(audioAula(chaveLicao(nums), k)),
+    });
     if (n !== nums[0]) document.getElementById('pag-' + n)?.scrollIntoView();
   }
 
@@ -2015,6 +2022,9 @@ const App = (() => {
     return JSON.parse(await data.text());
   }
 
+  const audioAula = (chave, k) => `aulas/${chave}/${String(k).padStart(2, '0')}.mp3`;
+  const chaveLicao = nums => `p${String(nums[0]).padStart(3, '0')}_p${String(nums.at(-1)).padStart(3, '0')}`;
+
   async function carregarLivro(info, disciplina) {
     const bancos = await Promise.all(info.bancos.map(lerJson));
     const paginas = bancos.flatMap(b => (b.paginas || []).map(p => ({ ...p, capitulo: b.capitulo })));
@@ -2035,15 +2045,18 @@ const App = (() => {
     const licoes = bancos.flatMap(b => b.licoes || []);
     // figuras: imagens preparadas a partir do livro (p. ex. o sistema digestivo com números em vez dos nomes, para legendar).
     const figuras = Object.fromEntries(bancos.flatMap(b => b.figuras || []).map(f => [f.id, f]));
+    // aulas visuais: { 'p008_p009': { passos: [...] } }, com a narração em aulas/<lição>/01.mp3, 02.mp3…
+    const aulas = Object.assign({}, ...bancos.map(b => b.aulas || {}));
+    const audios = Object.entries(aulas).flatMap(([k, a]) => a.passos.map((_, i) => ({ imagem: audioAula(k, i + 1) })));
     let url = f => '../' + info.base + f;
     if (db) {
-      const caminhos = [...paginas, ...Object.values(figuras)].map(p => info.base + p.imagem);
+      const caminhos = [...paginas, ...Object.values(figuras), ...audios].map(p => info.base + p.imagem);
       const assinados = await db.storage.from(BUCKET).createSignedUrls(caminhos, 60 * 60 * 12);
       if (assinados.error) throw assinados.error;
       const urls = Object.fromEntries(assinados.data.map(s => [s.path, s.signedUrl]));
       url = f => urls[info.base + f];
     }
-    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, figuras, url };
+    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, figuras, aulas, url };
   }
 
   async function iniciar() {
