@@ -592,8 +592,8 @@ const App = (() => {
           <b>${esc(titulo)}</b> <span class="muted">· ${intervalo(g.nums)}</span>
           <div class="estado">
             ${licaoEstudada(lid, g.nums) ? '<span class="chip ok">✓ Estudada</span>' : '<span class="chip">Por estudar</span>'}
-            ${l.aulas?.[chaveLicao(g.nums)] ? '<span class="chip ok">🎨 Aula com imagens</span>' : ''}
-            ${temVideo ? '<span class="chip ok">🎬 Com vídeo</span>' : g.licao?.video ? '<span class="chip">Vídeo em breve</span>' : ''}
+            ${l.aulas?.[chaveLicao(g.nums)] ? `<span class="chip ok">🎨 Aula com imagens${minutos(duracaoDe(l, g.nums).aula)}</span>` : ''}
+            ${temVideo ? `<span class="chip ok">🎬 Vídeo${minutos(duracaoDe(l, g.nums).video)}</span>` : g.licao?.video ? '<span class="chip">Vídeo em breve</span>' : ''}
             <span class="muted">${nPerg} perguntas</span>
           </div>
         </div>
@@ -779,8 +779,8 @@ const App = (() => {
     const licao = l.licoes.find(x => x.paginas.includes(n));
     if (!licao) return '<p class="muted">Ainda não há vídeo para esta página.</p>';
     const versoes = [
-      { nome: '🎓 Explicação completa', drive: licao.videoDrive },
-      { nome: '⚡ Resumo curto', drive: licao.videoDriveCurto },
+      { nome: '🎓 Explicação completa' + minutos(duracaoDe(l, licao.paginas).video), drive: licao.videoDrive },
+      { nome: '⚡ Resumo curto' + minutos(duracaoDe(l, licao.paginas).videoCurto), drive: licao.videoDriveCurto },
     ].filter(v => v.drive);
     if (!versoes.length) return '<p class="muted">Ainda não há vídeo para esta lição.</p>';
     const leitor = v => `<div class="video-drive"><iframe src="https://drive.google.com/file/d/${encodeURIComponent(v.drive)}/preview" allow="autoplay; fullscreen" allowfullscreen></iframe></div>`;
@@ -838,8 +838,8 @@ const App = (() => {
           ${voltar}
           <h1>${esc(licao.titulo)} <span class="muted titulo-sub">· páginas ${nums[0]}${nums.length > 1 ? ' a ' + nums.at(-1) : ''}</span></h1>
         </div>
-        ${aula ? '<div class="cartao video-licao"><h2>🎨 Aula com as imagens do livro</h2><div id="aula-visual"></div></div>' : ''}
-        ${temVideo ? `<div class="cartao video-licao"><h2>🎬 Vídeo da lição (NotebookLM)</h2>${blocoVideo(l, n)}</div>` : licao.video ? '<p class="muted">🎬 O vídeo do NotebookLM desta lição ainda não está pronto.</p>' : ''}
+        ${aula ? `<div class="cartao video-licao"><h2>🎨 Aula com as imagens do livro<span class="muted titulo-sub">${minutos(duracaoDe(l, nums).aula)}</span></h2><div id="aula-visual"></div></div>` : ''}
+        ${temVideo ? `<div class="cartao video-licao"><h2>🎬 Vídeo da lição (NotebookLM)<span class="muted titulo-sub">${minutos(duracaoDe(l, nums).video)}</span></h2>${blocoVideo(l, n)}</div>` : licao.video ? '<p class="muted">🎬 O vídeo do NotebookLM desta lição ainda não está pronto.</p>' : ''}
         <p class="muted">Vê o vídeo e lê as páginas com atenção (clica numa página para a ver em grande). Depois marca a lição como estudada e testa-te.</p>
         ${acoesLicao}
         ${paginasHtml}
@@ -2081,6 +2081,9 @@ const App = (() => {
   }
 
   const audioAula = (chave, k) => `aulas/${chave}/${String(k).padStart(2, '0')}.mp3`;
+  // Duração para mostrar ao lado dos ícones: " · 7 min".
+  const minutos = s => s ? ` · ${Math.max(1, Math.round(s / 60))} min` : '';
+  const duracaoDe = (l, nums) => l.duracoes?.[chaveLicao(nums)] || {};
   const chaveLicao = nums => `p${String(nums[0]).padStart(3, '0')}_p${String(nums.at(-1)).padStart(3, '0')}`;
 
   async function carregarLivro(info, disciplina) {
@@ -2105,6 +2108,8 @@ const App = (() => {
     const figuras = Object.fromEntries(bancos.flatMap(b => b.figuras || []).map(f => [f.id, f]));
     // aulas visuais: { 'p008_p009': { passos: [...] } }, com a narração em aulas/<lição>/01.mp3, 02.mp3…
     const aulas = Object.assign({}, ...bancos.map(b => b.aulas || {}));
+    // duracoes: { p008_p009: { video, videoCurto, aula } } em segundos (ferramentas/duracoes.js).
+    const duracoes = Object.assign({}, ...bancos.map(b => b.duracoes || {}));
     const audios = Object.entries(aulas).flatMap(([k, a]) => a.passos.map((_, i) => ({ imagem: audioAula(k, i + 1) })));
     let url = f => '../' + info.base + f;
     if (db) {
@@ -2114,7 +2119,7 @@ const App = (() => {
       const urls = Object.fromEntries(assinados.data.map(s => [s.path, s.signedUrl]));
       url = f => urls[info.base + f];
     }
-    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, figuras, aulas, url };
+    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, figuras, aulas, duracoes, url };
   }
 
   async function iniciar() {
