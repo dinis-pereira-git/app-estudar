@@ -6,7 +6,7 @@ const Armazenamento = (() => {
   const CHAVE = 'app-estudar-v1';
   // Nomes antigos de livros, de antes da organização por disciplina/livro.
   const ALIAS = { 'hgp-c3': 'hgp-viajantes6' };
-  const vazio = () => ({ tempoPorDia: {}, paginas: {}, testes: [], historico: {}, avaliacoes: [] });
+  const vazio = () => ({ tempoPorDia: {}, tempoPorDiaLivro: {}, paginas: {}, testes: [], historico: {}, avaliacoes: [] });
   let estado = vazio();
   let db = null;              // cliente Supabase, ou null em modo local
   let tempoPendente = {};     // "dia|livro|pagina" → segundos ainda por enviar
@@ -77,6 +77,7 @@ const Armazenamento = (() => {
 
     for (const t of tempo.data) {
       estado.tempoPorDia[t.dia] = (estado.tempoPorDia[t.dia] || 0) + t.segundos;
+      if (t.conteudo) { const pl = estado.tempoPorDiaLivro[livroId(t.conteudo)] ||= {}; pl[t.dia] = (pl[t.dia] || 0) + t.segundos; }
       if (t.conteudo && t.pagina) infoPagina(t.conteudo, t.pagina).segundos += t.segundos;
     }
     for (const p of estudadas.data) Object.assign(infoPagina(p.conteudo, p.pagina), { estudada: true, data: p.data });
@@ -120,6 +121,7 @@ const Armazenamento = (() => {
     adicionarTempo(segundos, livro, pagina) {
       const d = hoje();
       estado.tempoPorDia[d] = (estado.tempoPorDia[d] || 0) + segundos;
+      if (livro) { const pl = (estado.tempoPorDiaLivro ||= {})[livroId(livro)] ||= {}; pl[d] = (pl[d] || 0) + segundos; }
       if (livro && pagina) infoPagina(livro, pagina).segundos += segundos;
       const chave = `${d}|${livro || ''}|${pagina || 0}`;
       tempoPendente[chave] = (tempoPendente[chave] || 0) + segundos;

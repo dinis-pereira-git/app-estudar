@@ -319,7 +319,7 @@ const App = (() => {
     if (ecra === 'resultado' && teste?.registo) return ecraResultado();
     if (ecra === 'real' && testeReal(a)) return ecraTesteReal(testeReal(a));
     if (ecra === 'autocorrecao' && testeReal(a)) return ecraAutocorrecao(testeReal(a));
-    if (ecra === 'painel') return ecraPainel();
+    if (ecra === 'painel') return ecraPainel(disciplinas[a] ? a : null);
     if (ecra === 'revisao') return ecraRevisao(a === 'todas');
     if (ecra === 'correcoes') { location.hash = linkAvisoCorrecoes(Object.keys(disciplinas)[0], a); return; } // endereço antigo
     ecraCapa();
@@ -571,7 +571,7 @@ const App = (() => {
       <section class="cartao">
         <a href="#/" class="voltar">← Início</a>
         <h1>${d.icone || ''} ${esc(d.nome)} <span class="muted titulo-sub">${esc(d.nomeCompleto)}</span></h1>
-        <div class="seccao-topo"><h2>Testes</h2><a class="btn" href="#/gerir/${did}">⚙️ Gerir testes</a></div>
+        <div class="seccao-topo"><h2>Testes</h2><span><a class="btn" href="#/painel/${did}">📊 Painel de ${esc(d.nome)}</a> <a class="btn" href="#/gerir/${did}">⚙️ Gerir testes</a></span></div>
         ${porPeriodo || `<p class="muted">Ainda não há testes marcados. <a href="#/gerir/${did}/novo">Criar o primeiro teste</a>.</p>`}
         ${blocoCorrecoes({ did })}
         <h2>Livros</h2>
@@ -1744,9 +1744,9 @@ const App = (() => {
 
   // ---------- painel ----------
   // Respostas que a Leonor assinalou como "pode ser melhorada", para o pai rever as respostas modelo do banco.
-  function blocoMelhorar() {
+  function blocoMelhorar(testes = A.estado.testes) {
     const porId = perguntasPorId();
-    const itens = [...A.estado.testes].reverse().flatMap(t => t.respostas.filter(r => r.melhorar).map(r => ({ t, r, q: porId[r.id] })));
+    const itens = [...testes].reverse().flatMap(t => t.respostas.filter(r => r.melhorar).map(r => ({ t, r, q: porId[r.id] })));
     if (!itens.length) return '';
     return `
       <h2>✍️ Respostas a melhorar <span class="contagem">${itens.length}</span></h2>
@@ -1759,8 +1759,19 @@ const App = (() => {
       </table></div>`;
   }
 
-  function ecraPainel() {
-    const e = A.estado;
+  // did = disciplina (painel só dessa disciplina) ou null (painel geral, com tudo).
+  function ecraPainel(did = null) {
+    const da = t => disciplinaDe(t) === did;
+    const livrosP = Object.values(livros).filter(l => !did || l.disciplina === did);
+    const tempoDia = !did ? A.estado.tempoPorDia : livrosP.reduce((acc, l) => {
+      for (const [dia, s] of Object.entries(A.estado.tempoPorDiaLivro?.[l.id] || {})) acc[dia] = (acc[dia] || 0) + s;
+      return acc;
+    }, {});
+    const e = !did ? A.estado : { ...A.estado, testes: A.estado.testes.filter(da), avaliacoes: A.estado.avaliacoes.filter(a => a.disciplina === did), tempoPorDia: tempoDia };
+    const separadores = `<div class="filtros-correcao separadores-painel">
+      <a class="filtro ${!did ? 'ativo' : ''}" href="#/painel">📊 Geral</a>
+      ${Object.values(disciplinas).map(d => `<a class="filtro ${d.id === did ? 'ativo' : ''}" href="#/painel/${d.id}">${d.icone || ''} ${esc(d.nome)}</a>`).join('')}
+    </div>`;
     const hoje = A.hoje();
     const dias = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - 6 + i); return d.toLocaleDateString('sv'); });
     const tempoSemana = dias.reduce((s, d) => s + (e.tempoPorDia[d] || 0), 0);
@@ -1791,7 +1802,7 @@ const App = (() => {
     // Perguntas que custam: estado atual e comparação com há 7 dias, para se ver se estão a diminuir.
     const contarEstados = lista => Object.fromEntries(Object.keys(ESTADO_CUSTA).map(k => [k, lista.filter(x => x.estado === k).length]));
     const ha7 = new Date(); ha7.setDate(ha7.getDate() - 7);
-    const custamPorLivro = Object.values(livros).map(l => {
+    const custamPorLivro = livrosP.map(l => {
       const lista = perguntasQueCustam(l.id);
       return { l, lista, agora: contarEstados(lista), antes: contarEstados(perguntasQueCustam(l.id, null, ha7.toISOString())) };
     });
@@ -1817,7 +1828,7 @@ const App = (() => {
 
     const dataPt = d => d.toLocaleDateString('pt-PT', { weekday: 'short', day: 'numeric', month: 'long' });
     const porSemana = x => x >= 1 ? `${Math.ceil(x)} lição(ões) por dia` : `${Math.ceil(x * 7)} lição(ões) por semana`;
-    const testesEscola = [...A.estado.avaliacoes].sort((x, y) => String(x.data || '9999').localeCompare(String(y.data || '9999'))).map(a => {
+    const testesEscola = [...e.avaliacoes].sort((x, y) => String(x.data || '9999').localeCompare(String(y.data || '9999'))).map(a => {
       const p = progressoTeste(a);
       const feitos = e.testes.filter(t => String(t.avaliacao) === String(a.id));
       const nota = melhorNota(t => String(t.avaliacao) === String(a.id) && t.tipo === 'global');
@@ -1849,7 +1860,7 @@ const App = (() => {
     // X = coluna Misto (melhor nota dos testes mistos da lição); na linha do total não se aplica.
     const celulaOuMedia = (p, k, lid, nums) => k.endsWith('M') ? celulaMedia(p, k.slice(0, -1))
       : k.endsWith('X') ? (nums ? celulaMisto(lid, nums, k.slice(0, -1)) : '<td class="muted">—</td>') : celulaNivel(p[k]);
-    const tabelasNiveis = Object.values(livros).map(l => {
+    const tabelasNiveis = livrosP.map(l => {
       const linhas = gruposLicoes(l.id, l.paginas.map(p => p.numero)).map(g => ({ g, p: progressoNiveis(l.id, g.nums) }));
       const total = soma(linhas.map(x => x.p));
       return `
@@ -1866,7 +1877,7 @@ const App = (() => {
         </table></div>`;
     }).join('');
 
-    const tabelasLicoes = Object.values(livros).map(l => `
+    const tabelasLicoes = livrosP.map(l => `
       <h3>${esc(disciplinas[l.disciplina].nome)} · ${esc(l.titulo)}</h3>
       <table>
         <thead><tr><th>Lição</th><th>Estudada</th><th>Tempo</th><th>Testes</th><th>Melhor nota</th><th title="Nível em que já acertou ${DOMINIO}% ou mais">Nível dominado</th></tr></thead>
@@ -1883,7 +1894,8 @@ const App = (() => {
 
     render(`
       <section class="cartao">
-        <h1>Painel de estudo</h1>
+        <h1>Painel de estudo${did ? ` · ${disciplinas[did].icone || ''} ${esc(disciplinas[did].nome)}` : ''}</h1>
+        ${separadores}
         ${contaAtual ? `<p class="muted">Conta: <b>${esc(contaAtual)}</b>${A.testesPorEnviar ? ` · ⚠️ ${A.testesPorEnviar} teste(s) por gravar no servidor` : ' · ✅ tudo gravado no servidor'}</p>` : ''}
         <div class="kpis">
           <div class="kpi"><span>Hoje</span><b>${fmt(e.tempoPorDia[hoje] || 0)}</b></div>
@@ -1902,7 +1914,7 @@ const App = (() => {
         <h2>Testes da escola</h2>
         ${testesEscola || '<p class="muted">Ainda não há testes marcados.</p>'}
 
-        ${blocoMelhorar()}
+        ${blocoMelhorar(e.testes)}
         <h2>📝 Correções (notas finais)</h2>
         ${todosTestes.length ? `
           <p>${pendentes.length ? `<b>${pendentes.length} teste(s) à espera de revisão.</b> <button class="btn prim" id="pedido-todos">⬇️ Descarregar todos para correção</button>` : '✅ Não há testes por corrigir.'}</p>
@@ -1981,7 +1993,7 @@ const App = (() => {
           O objetivo é o número de 🔴 ir descendo — para isso há o treino <b>"🎯 As que mais custam"</b> em cada teste e no livro.</p>
         ${htmlCustam}
 
-        <p><button class="btn" id="exportar">⬇️ Guardar cópia do progresso</button>
+        ${did ? '<p class="muted">A cópia do progresso e o "Recomeçar do zero" estão no <a href="#/painel">painel geral</a>.</p>' : `<p><button class="btn" id="exportar">⬇️ Guardar cópia do progresso</button>
           <label class="btn">📥 Juntar testes de uma cópia<input type="file" id="importar" accept=".json,application/json" hidden></label>
           <span id="msg-importar" class="muted"></span></p>
         <p class="muted">"Juntar testes" acrescenta os testes de uma cópia que ainda não estejam gravados (não apaga nem repete nada).</p>
@@ -1989,28 +2001,28 @@ const App = (() => {
         <h2>Recomeçar do zero</h2>
         <p class="muted">Apaga as páginas estudadas e todos os treinos e notas. Os testes da escola (datas e páginas) ficam.</p>
         <label class="ponto"><input type="checkbox" id="apagar-tempos"> Apagar também os tempos de estudo</label>
-        <p><button class="btn perigo" id="recomecar">🗑️ Recomeçar do zero</button> <span id="msg-recomecar" class="muted"></span></p>
+        <p><button class="btn perigo" id="recomecar">🗑️ Recomeçar do zero</button> <span id="msg-recomecar" class="muted"></span></p>`}
       </section>`);
-    document.getElementById('recomecar').onclick = async () => {
+    if (!did) document.getElementById('recomecar').onclick = async () => {
       const tempos = document.getElementById('apagar-tempos').checked;
       if (!confirm(`Apagar as páginas estudadas e todos os treinos${tempos ? ' e os tempos de estudo' : ''}? Isto não se pode desfazer.`)) return;
-      try { await A.apagarProgresso({ tempos }); atualizarRelogio(); ecraPainel(); }
+      try { await A.apagarProgresso({ tempos }); atualizarRelogio(); ecraPainel(did); }
       catch (erro) { document.getElementById('msg-recomecar').textContent = 'Não foi possível apagar: ' + erro.message; }
     };
-    document.getElementById('exportar').onclick = A.exportar;
-    document.getElementById('importar').onchange = async ev => {
+    if (!did) document.getElementById('exportar').onclick = A.exportar;
+    if (!did) document.getElementById('importar').onchange = async ev => {
       const $m = document.getElementById('msg-importar');
       try {
         const copia = JSON.parse(await ev.target.files[0].text());
         const n = await A.importarTestes(copia.testes || []);
-        ecraPainel();
+        ecraPainel(did);
         document.getElementById('msg-importar').textContent = n ? `✅ ${n} teste(s) juntados.` : 'Não havia testes novos nesta cópia.';
       } catch (erro) { $m.textContent = 'Não foi possível juntar: ' + erro.message; }
     };
     $app.querySelectorAll('[data-pedido]').forEach(bt => bt.onclick = () => descarregarParaCorrecao([testeReal(bt.dataset.pedido)]));
     $app.querySelectorAll('[data-filtro-painel]').forEach(bt => bt.onclick = () => {
       filtroPainel = bt.dataset.filtroPainel;
-      const y = scrollY; ecraPainel(); scrollTo(0, y);
+      const y = scrollY; ecraPainel(did); scrollTo(0, y);
     });
     // Abrir/fechar as respostas de um teste na tabela das correções (com as reações da Leonor).
     $app.querySelectorAll('[data-abrir]').forEach(bt => bt.onclick = () => {
@@ -2026,7 +2038,7 @@ const App = (() => {
       try {
         const feitos = await carregarCorrecao($correcao.files[0]);
         if (feitos.length === 1) location.hash = `#/real/${feitos[0].id}`;
-        else { ecraPainel(); document.getElementById('msg-correcao').textContent = `✅ ${feitos.length} testes corrigidos.`; }
+        else { ecraPainel(did); document.getElementById('msg-correcao').textContent = `✅ ${feitos.length} testes corrigidos.`; }
       } catch (erro) { $msg.textContent = 'Não foi possível carregar: ' + erro.message; }
     };
   }
