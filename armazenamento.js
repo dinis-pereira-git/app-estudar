@@ -10,6 +10,10 @@ const Armazenamento = (() => {
   let estado = vazio();
   let db = null;              // cliente Supabase, ou null em modo local
   let tempoPendente = {};     // "dia|livro|pagina" → segundos ainda por enviar
+  // Só leitura: contas de responsáveis (ex.: a mãe) que veem os dados da Leonor (tabela familia no Supabase).
+  // Nada do que se faz com estas contas é gravado no servidor (nem tempo, nem testes, nem "correções vistas").
+  let soLeitura = false;
+  const SO_LEITURA = 'Esta conta só pode ver o progresso (modo só leitura).';
 
   const hoje = () => new Date().toLocaleDateString('sv'); // AAAA-MM-DD
   const livroId = id => ALIAS[id] || id;
@@ -29,7 +33,7 @@ const Armazenamento = (() => {
     escreverPendentes(lerPendentes().filter(t => t.id !== teste.id));
   }
   async function reenviarPendentes() {
-    if (!db) return;
+    if (!db || soLeitura) return;
     for (const t of lerPendentes()) {
       try { await enviarTestePendente(t); } catch (erro) { avisar(erro); break; }
     }
@@ -58,6 +62,10 @@ const Armazenamento = (() => {
       estado.testes.forEach(normalizarTeste);
       return;
     }
+    // Esta conta é responsável por alguém? Então mostra os dados dessa pessoa, sem gravar nada.
+    const uid = (await db.auth.getSession()).data.session?.user?.id;
+    const fam = await db.from('familia').select('responsavel, aluno');
+    soLeitura = !fam.error && fam.data.some(f => f.responsavel === uid);
     const [tempo, estudadas, testes, avaliacoes] = await Promise.all([
       db.from('tempo').select('dia, conteudo, pagina, segundos'),
       db.from('paginas_estudadas').select('conteudo, pagina, data'),
@@ -91,7 +99,7 @@ const Armazenamento = (() => {
 
   // O tempo é enviado em lotes (de 30 em 30 s, e quando se sai da página) para não fazer pedidos a cada 5 s.
   function enviarTempo() {
-    if (!db) return;
+    if (!db || soLeitura) return;
     const lote = tempoPendente;
     tempoPendente = {};
     for (const [chave, segundos] of Object.entries(lote)) {
@@ -104,6 +112,7 @@ const Armazenamento = (() => {
   return {
     get estado() { return estado; },
     get online() { return !!db; },
+    get soLeitura() { return soLeitura; },
     iniciar,
     hoje,
     infoPagina,
@@ -123,7 +132,7 @@ const Armazenamento = (() => {
       p.estudada = true;
       p.data = new Date().toISOString();
       guardarLocal();
-      db?.from('paginas_estudadas').upsert({ conteudo: livro, pagina }).then(({ error }) => avisar(error));
+      if (!soLeitura) db?.from('paginas_estudadas').upsert({ conteudo: livro, pagina }).then(({ error }) => avisar(error));
     },
 
     // Para desfazer um "Já estudei" carregado sem querer, ou para repetir a página.
@@ -133,7 +142,7 @@ const Armazenamento = (() => {
       p.estudada = false;
       delete p.data;
       guardarLocal();
-      db?.from('paginas_estudadas').delete().eq('conteudo', livroId(livro)).eq('pagina', pagina).then(({ error }) => avisar(error));
+      if (!soLeitura) db?.from('paginas_estudadas').delete().eq('conteudo', livroId(livro)).eq('pagina', pagina).then(({ error }) => avisar(error));
     },
 
     // Cada resposta conta para o histórico da pergunta: as erradas (ou certas com ajuda)
@@ -142,7 +151,7 @@ const Armazenamento = (() => {
       estado.testes.push(teste);
       contarNoHistorico(teste);
       guardarLocal();
-      if (!db) return;
+      if (!db || soLeitura) return;
       // Primeiro guarda-se neste computador; só sai da lista depois de o servidor confirmar.
       escreverPendentes([...lerPendentes().filter(t => t.id !== teste.id), teste]);
       enviarTestePendente(teste).then(() => aoMudarPendentes(lerPendentes().length))
@@ -159,7 +168,7 @@ const Armazenamento = (() => {
     async atualizarTeste(teste) {
       contarNoHistorico(teste);
       guardarLocal();
-      if (db) {
+      if (db && !soLeitura) {
         const { error } = await db.from('testes').update({ registo: teste }).eq('registo->>id', String(teste.id));
         if (error) throw error;
       }
@@ -169,7 +178,7 @@ const Armazenamento = (() => {
     // (usado na revisão das autoavaliações pelo pai).
     async guardarRegisto(teste) {
       guardarLocal();
-      if (db) {
+      if (db && !soLeitura) {
         // Se o teste ainda está por enviar, atualiza-se a cópia local (vai com as alterações quando for enviado).
         const pend = lerPendentes();
         if (pend.some(t => t.id === teste.id)) { escreverPendentes(pend.map(t => t.id === teste.id ? teste : t)); return; }
@@ -180,6 +189,7 @@ const Armazenamento = (() => {
 
     // Juntar testes de uma cópia de progresso (exportar) que não estejam no servidor.
     async importarTestes(lista) {
+      if (soLeitura) throw new Error(SO_LEITURA);
       const ids = new Set(estado.testes.map(t => String(t.id)));
       const novos = lista.filter(t => !ids.has(String(t.id)));
       for (const t of novos) {
@@ -192,6 +202,7 @@ const Armazenamento = (() => {
     },
 
     async guardarAvaliacao(a) {
+      if (soLeitura) throw new Error(SO_LEITURA);
       const dados = { disciplina: a.disciplina, periodo: a.periodo, nome: a.nome, data: a.data || null, livro: a.livro, de: a.de, ate: a.ate };
       let guardada;
       if (db) {
@@ -209,6 +220,7 @@ const Armazenamento = (() => {
     },
 
     async apagarAvaliacao(id) {
+      if (soLeitura) throw new Error(SO_LEITURA);
       if (db) {
         const { error } = await db.from('avaliacoes').delete().eq('id', id);
         if (error) throw error;
@@ -220,6 +232,7 @@ const Armazenamento = (() => {
     // Recomeçar do zero: apaga páginas estudadas e treinos (e, se pedido, os tempos de estudo).
     // Os testes da escola (avaliações) ficam.
     async apagarProgresso({ tempos = false } = {}) {
+      if (soLeitura) throw new Error(SO_LEITURA);
       if (db) {
         const pedidos = [db.from('testes').delete().gte('id', 0), db.from('paginas_estudadas').delete().gte('pagina', 0)];
         if (tempos) pedidos.push(db.from('tempo').delete().gte('segundos', 0));

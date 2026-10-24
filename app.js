@@ -2122,6 +2122,8 @@ const App = (() => {
         document.getElementById('tentar-gravar')?.addEventListener('click', () => A.reenviarPendentes());
       };
       await A.iniciar(db);
+      // Conta de um responsável (ex.: a mãe): vê o progresso da Leonor, mas nada fica gravado.
+      if (A.soLeitura) document.body.insertAdjacentHTML('afterbegin', '<div class="aviso-leitura">👀 <b>Modo só leitura</b>: estás a ver o progresso da Leonor. O que fizeres aqui não fica gravado.</div>');
       const catalogo = await (await fetch('catalogo.json', { cache: 'no-cache' })).json();
       for (const d of catalogo.disciplinas) {
         disciplinas[d.id] = { ...d, livros: d.livros.map(l => l.id) };
