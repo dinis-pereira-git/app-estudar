@@ -767,7 +767,7 @@ const App = (() => {
 
   // Uma linha por lição (as páginas de um vídeo), com estudar e testar.
   const listaPorLicao = (lid, nums, a) => `
-    <p class="muted legenda-niveis">Tabelas: % das perguntas da lição já certas sem ajuda — ✍️ escrita, ⚡ escolha múltipla; <b>Misto</b> = melhor nota nos testes mistos.
+    <p class="muted legenda-niveis">Tabelas: % das perguntas da lição já certas sem ajuda — ✍️ escrita${temEscolha(lid) ? ", ⚡ escolha múltipla" : ""}; <b>Misto</b> = melhor nota nos testes mistos.
       <span class="cel-nivel provisorio">roxo ✋</span> = inclui respostas que deste como certas e que ainda vão ser revistas · 💡 = há perguntas que só acertaste com ajuda.</p>
     <ol class="pag-lista">${gruposLicoes(lid, nums).map(g => linhaLicao(lid, g, a)).join('')}</ol>`;
 
