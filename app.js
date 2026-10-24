@@ -1114,6 +1114,26 @@ const App = (() => {
     document.getElementById('seguinte')?.addEventListener('click', seguinte);
   }
 
+  // "A resposta pode ser melhorada": a Leonor assinala que a resposta modelo está incompleta ou pouco clara.
+  // Fica em r.melhorar = { comentario, data } e aparece ao pai no Painel → "✍️ Respostas a melhorar".
+  const botaoMelhorar = (r, chave = '') => r.melhorar
+    ? '<p class="muted melhorar-feito">✍️ Assinalaste que esta resposta pode ser melhorada. Obrigada! O pai vai rever.</p>'
+    : `<div class="melhorar" data-melhorar-caixa="${chave}"><button class="btn" data-melhorar="${chave}">✍️ A resposta pode ser melhorada</button></div>`;
+  // Liga os botões: abre uma caixa para o comentário e, ao enviar, guarda e chama depois().
+  function ligarMelhorar(obterResposta, depois) {
+    $app.querySelectorAll('[data-melhorar]').forEach(bt => bt.onclick = () => {
+      const chave = bt.dataset.melhorar;
+      const caixa = $app.querySelector(`[data-melhorar-caixa="${chave}"]`);
+      caixa.innerHTML = `<textarea rows="2" placeholder="O que falta ou não está bem na resposta? (podes deixar em branco)"></textarea>
+        <button class="btn prim">Enviar ao pai</button>`;
+      caixa.querySelector('textarea').focus();
+      caixa.querySelector('button').onclick = () => {
+        obterResposta(chave).melhorar = { comentario: caixa.querySelector('textarea').value.trim(), data: new Date().toISOString() };
+        depois();
+      };
+    });
+  }
+
   function ecraPerguntaEscrita(q) {
     const e = q.escrita, r = teste.respondida, real = teste.modo === 'real';
     const ultima = teste.indice + 1 >= teste.perguntas.length;
@@ -1141,6 +1161,7 @@ const App = (() => {
           <h3>${certa ? (teste.ajuda ? '👍 Certo, com ajuda!' : '🎉 Muito bem! Legendaste tudo.') : `🙂 Acertaste ${r.legendasCertas.filter(Boolean).length} de ${e.legendas.length}.`}</h3>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
+          ${botaoMelhorar(r)}
           ${botaoSeguinte()}
         </div>`;
     } else if (e.tipo === 'curta') {
@@ -1152,6 +1173,7 @@ const App = (() => {
           <p><b>Resposta:</b> ${esc(e.modelo)}</p>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
+          ${botaoMelhorar(r)}
           <div class="linha-botoes esquerda">
             ${certa ? '' : '<button class="btn" id="acertei">A minha resposta também está certa</button>'}
             ${botaoSeguinte()}
@@ -1175,6 +1197,7 @@ const App = (() => {
           <h3>${certa ? (e.minimo && e.minimo < e.pontos.length ? `🎉 Tinhas os ${e.minimo} pontos-chave pedidos!` : '🎉 Tinhas todos os pontos-chave!') : r.pontuacao > 0 ? `🙂 Tinhas ${r.marcados} de ${Math.min(e.minimo || e.pontos.length, e.pontos.length)} pontos-chave.` : '💪 Não faz mal, vamos ver onde está.'}</h3>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
+          ${botaoMelhorar(r)}
           ${botaoSeguinte()}
         </div>`;
     }
@@ -1204,6 +1227,7 @@ const App = (() => {
     }
     document.getElementById('ajuda')?.addEventListener('click', () => { teste.ajuda = true; ecraPergunta(); });
     document.getElementById('seguinte')?.addEventListener('click', seguinte);
+    ligarMelhorar(() => r, () => ecraPergunta());
     $app.querySelectorAll('[data-leg-ok]').forEach(c => c.onchange = () => {
       r.legendasAluna = [...$app.querySelectorAll('[data-leg-ok]:checked')].map(x => +x.dataset.legOk);
       pontuarLegenda(e, r);
@@ -1383,6 +1407,7 @@ const App = (() => {
           <b>${esc(r.pergunta || q?.pergunta || '')}</b>
           <div class="a-tua"><b>A tua resposta:</b> ${esc(r.texto) || '<i>em branco</i>'}</div>
           ${corpo}
+          ${botaoMelhorar(r, i)}
         </li>`;
     }).join('');
     render(`
@@ -1398,6 +1423,10 @@ const App = (() => {
         ${ajudaNotebookLM(t)}
       </section>`);
     document.getElementById('para-notebooklm').onclick = () => descarregarParaNotebookLM(t);
+    ligarMelhorar(i => t.respostas[+i], async () => {
+      try { await A.guardarRegisto(t); } catch (erro) { alert('Não foi possível guardar: ' + erro.message); }
+      const y = scrollY; ecraAutocorrecao(t); scrollTo(0, y);
+    });
     document.getElementById('concluir-auto')?.addEventListener('click', async () => {
       t.respostas.forEach((r, i) => {
         const e = perguntaDoBanco(t, r.id)?.escrita;
@@ -1714,6 +1743,22 @@ const App = (() => {
   }
 
   // ---------- painel ----------
+  // Respostas que a Leonor assinalou como "pode ser melhorada", para o pai rever as respostas modelo do banco.
+  function blocoMelhorar() {
+    const porId = perguntasPorId();
+    const itens = [...A.estado.testes].reverse().flatMap(t => t.respostas.filter(r => r.melhorar).map(r => ({ t, r, q: porId[r.id] })));
+    if (!itens.length) return '';
+    return `
+      <h2>✍️ Respostas a melhorar <span class="contagem">${itens.length}</span></h2>
+      <p class="muted">A Leonor achou que a resposta modelo destas perguntas pode ser mais completa ou mais clara. Pede ao Claude para as rever (ids entre parênteses).</p>
+      <div class="tabela-larga"><table>
+        <thead><tr><th>Data</th><th>Pergunta</th><th>Resposta modelo</th><th>A resposta dela</th><th>Comentário dela</th></tr></thead>
+        <tbody>${itens.map(({ t, r, q }) => `<tr><td>${dataCurta(r.melhorar.data || t.data)}</td>
+          <td>${esc(r.pergunta || q?.escrita?.pergunta || q?.pergunta || '')} <small class="muted">(${esc(r.id)})</small></td>
+          <td>${esc(q?.escrita?.modelo || '')}</td><td>${esc(r.texto || '')}</td><td>${esc(r.melhorar.comentario || '—')}</td></tr>`).join('')}</tbody>
+      </table></div>`;
+  }
+
   function ecraPainel() {
     const e = A.estado;
     const hoje = A.hoje();
@@ -1857,6 +1902,7 @@ const App = (() => {
         <h2>Testes da escola</h2>
         ${testesEscola || '<p class="muted">Ainda não há testes marcados.</p>'}
 
+        ${blocoMelhorar()}
         <h2>📝 Correções (notas finais)</h2>
         ${todosTestes.length ? `
           <p>${pendentes.length ? `<b>${pendentes.length} teste(s) à espera de revisão.</b> <button class="btn prim" id="pedido-todos">⬇️ Descarregar todos para correção</button>` : '✅ Não há testes por corrigir.'}</p>

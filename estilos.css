@@ -353,3 +353,8 @@ th { color: var(--muted); font-weight: 600; }
 .aula-passo { margin-left: auto; }
 .aula-barra { height: 6px; background: var(--linha); border-radius: 3px; margin-top: 8px; overflow: hidden; }
 .aula-barra div { height: 100%; background: var(--prim); transition: width .4s; }
+
+/* "A resposta pode ser melhorada" */
+.melhorar { margin: 10px 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.melhorar textarea { width: 100%; font: inherit; padding: 8px 10px; border: 2px solid var(--linha); border-radius: 10px; }
+.melhorar-feito { margin: 10px 0; }
