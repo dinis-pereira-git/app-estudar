@@ -56,7 +56,9 @@
           "bancos": [
             "2026-2027/Ingles/EN6-MyLife/perguntas-en6.json",
             "2026-2027/Ingles/EN6-MyLife/zonas.json",
-            "2026-2027/Ingles/EN6-MyLife/ajustes-perguntas.json"
+            "2026-2027/Ingles/EN6-MyLife/ajustes-perguntas.json",
+            "2026-2027/Ingles/EN6-MyLife/aulas-en6.json",
+            "2026-2027/Ingles/EN6-MyLife/duracoes.json"
           ]
         }
       ]

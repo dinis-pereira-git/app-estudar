@@ -80,15 +80,18 @@ const Aulas = (() => {
 
   // ---------- leitor ----------
   // el: onde pôr a aula; aula: { titulo, passos }; urlPagina(n), urlAudio(k): endereços das imagens e dos sons.
+  const verLegendas = () => { try { return localStorage.getItem('app-ver-legendas') === '1'; } catch { return false; } };
   function montar(el, aula, { urlPagina, urlAudio }) {
     el.innerHTML = `
       <div class="aula">
         <div class="aula-palco"><div class="aula-folha"><img alt=""></div><div class="aula-anim"></div><div class="aula-resumo"></div></div>
         <div class="aula-legenda"></div>
+        <div class="aula-traducao" hidden></div>
         <div class="aula-controlos">
           <button class="btn" data-a="ant">⏮</button>
           <button class="btn prim" data-a="play">▶ Começar a aula</button>
           <button class="btn" data-a="seg">⏭</button>
+          ${aula.passos.some(p => p.legenda) ? '<button class="btn" data-a="leg">🇵🇹 Subtitles</button>' : ''}
           <span class="muted aula-passo"></span>
         </div>
         <div class="aula-barra"><div></div></div>
@@ -151,6 +154,10 @@ const Aulas = (() => {
         if (img.dataset.pag !== String(p.pag)) { img.onload = pronto; img.dataset.pag = p.pag; img.src = src; } else pronto();
       }
       q('.aula-legenda').innerHTML = p.texto;
+      // Aulas de Inglês: legenda em português (liga/desliga; a escolha fica guardada neste browser).
+      const $tr = q('.aula-traducao');
+      $tr.innerHTML = p.legenda || '';
+      $tr.hidden = !p.legenda || !verLegendas();
       q('.aula-passo').textContent = `${i + 1} / ${P.length}`;
       q('.aula-barra div').style.width = `${100 * (i + 1) / P.length}%`;
       if (aTocar) falar(i);
@@ -172,6 +179,12 @@ const Aulas = (() => {
       mostrar(Math.max(i, 0));
     };
     q('[data-a=seg]').onclick = () => mostrar(i + 1);
+    q('[data-a=leg]')?.addEventListener('click', () => {
+      try { localStorage.setItem('app-ver-legendas', verLegendas() ? '0' : '1'); } catch {}
+      const $tr = q('.aula-traducao'); $tr.hidden = !$tr.innerHTML || !verLegendas();
+      q('[data-a=leg]').classList.toggle('prim', verLegendas());
+    });
+    q('[data-a=leg]')?.classList.toggle('prim', verLegendas());
     q('[data-a=ant]').onclick = () => mostrar(i - 1);
     addEventListener('resize', () => apontar(P[Math.max(i, 0)]));
     mostrar(0);

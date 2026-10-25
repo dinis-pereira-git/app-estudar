@@ -375,3 +375,4 @@ th { color: var(--muted); font-weight: 600; }
 .lida-falta { color: var(--mau); text-decoration: underline dotted; }
 .leitura-msg { margin: 4px 0 0; }
 .aviso-ler { background: var(--aviso-fundo); color: var(--aviso); padding: 8px 12px; border-radius: 10px; font-weight: 600; }
+.aula-traducao { margin: -2px 0 8px; color: var(--muted); font-style: italic; font-size: 17px; line-height: 1.4; }
