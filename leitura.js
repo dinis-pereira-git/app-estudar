@@ -92,17 +92,19 @@ const Leitura = (() => {
     if (!SR && !estado.passou) { estado.passou = true; aoPassar?.(); }
   }
 
-  // Na 1.ª vez que se toca um som, as colunas/auscultadores ainda estão a "acordar" e cortam o início. Toca-se
-  // primeiro ~0,8 s de silêncio (um tom com volume zero) e só depois o som a sério. Depois disso já não é preciso.
-  let acordado = null;
+  // As colunas/auscultadores (sobretudo Bluetooth) "adormecem" nos silêncios e cortam o início de cada som.
+  // Ao primeiro som, liga-se um tom inaudível (volume quase zero) que fica a tocar enquanto a página está aberta,
+  // para nunca adormecerem; na 1.ª vez espera-se ~0,8 s antes de tocar o som a sério.
+  let acordado = null, ctx = null;
   function acordarSom() {
+    if (ctx?.state === 'suspended') ctx.resume().catch(() => {});
     if (acordado) return acordado;
     acordado = new Promise(resolve => {
       try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
         const osc = ctx.createOscillator(), g = ctx.createGain();
-        g.gain.value = 0.0001; osc.connect(g); g.connect(ctx.destination);
-        ctx.resume().then(() => { osc.start(); setTimeout(() => { osc.stop(); resolve(); }, 800); });
+        osc.frequency.value = 30; g.gain.value = 0.001; osc.connect(g); g.connect(ctx.destination);
+        ctx.resume().then(() => { osc.start(); setTimeout(resolve, 800); }).catch(resolve);
       } catch { resolve(); }
     });
     return acordado;
