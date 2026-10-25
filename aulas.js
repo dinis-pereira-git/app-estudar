@@ -87,6 +87,7 @@ const Aulas = (() => {
         <div class="aula-palco"><div class="aula-folha"><img alt=""></div><div class="aula-anim"></div><div class="aula-resumo"></div><div class="aula-pausa" hidden></div></div>
         <div class="aula-legenda"></div>
         <div class="aula-traducao" hidden></div>
+        <div class="aula-ler" hidden></div>
         <div class="aula-controlos">
           <button class="btn" data-a="ant">⏮</button>
           <button class="btn prim" data-a="play">▶ Começar a aula</button>
@@ -100,6 +101,7 @@ const Aulas = (() => {
     const palco = q('.aula-palco'), folha = q('.aula-folha'), img = q('.aula-folha img');
     const P = aula.passos, audio = new Audio();
     let i = 0, aTocar = false, temporizadores = [];
+    const leituras = {}; // leituras em voz alta já feitas nesta aula (para a nota no fim)
     const limpar = () => { temporizadores.forEach(clearTimeout); temporizadores = []; };
     const depois = (f, ms) => temporizadores.push(setTimeout(f, ms));
 
@@ -157,7 +159,16 @@ const Aulas = (() => {
       audio.onended = () => {
         if (!aTocar || i !== k) return;
         const seguir = () => (j + 1 < p.partes.length ? tocarParte(k, j + 1) : depois(() => (i < P.length - 1 ? mostrar(i + 1) : parar(true)), 900));
-        if (parte.pausa) {
+        // Repetir: a aula espera que a Leonor leia em voz alta (🎤) e avalia a leitura; só depois continua.
+        if (parte.pausa && (parte.acao || 'repetir') === 'repetir' && window.Leitura) {
+          const $p = q('.aula-pausa'), $l = q('.aula-ler');
+          $p.textContent = '🔁 Your turn!'; $p.hidden = false; $l.hidden = false;
+          const texto = parte.ler || parte.texto.replace(/<[^>]+>/g, '');
+          const estado = leituras[k + '-' + j] || (leituras[k + '-' + j] = {});
+          Leitura.montar($l, { titulo: '🎤 Read it aloud: <i>' + texto + '</i>', texto, urlAudio: urlAudio(k + 1, j + 1), estado,
+            aoPassar: () => depois(() => { if (!aTocar || i !== k) return; $p.hidden = true; $l.hidden = true; seguir(); }, 1800) });
+          if (estado.passou) { $l.hidden = true; $p.hidden = true; depois(seguir, 450); }
+        } else if (parte.pausa) {
           const $p = q('.aula-pausa');
           $p.textContent = parte.acao === 'pensar' ? '🤔 Think!' : parte.acao === 'responder' ? '🗣️ Your turn! Answer.' : '🔁 Repeat!';
           $p.hidden = false;
@@ -186,7 +197,7 @@ const Aulas = (() => {
         const pronto = () => { apontar(p); depois(() => desenharMarcas(p), 1200); };
         if (img.dataset.pag !== String(p.pag)) { img.onload = pronto; img.dataset.pag = p.pag; img.src = src; } else pronto();
       }
-      q('.aula-pausa').hidden = true;
+      q('.aula-pausa').hidden = true; q('.aula-ler').hidden = true;
       q('.aula-legenda').innerHTML = p.partes
         ? p.partes.map(pt => `<p class="aula-parte voz-${pt.voz || 'prof'}">${ICONE_VOZ[pt.voz] || ''}${pt.texto}</p>`).join('')
         : p.texto;
@@ -209,6 +220,8 @@ const Aulas = (() => {
     function parar(fim) {
       aTocar = false; audio.pause();
       q('[data-a=play]').textContent = fim ? '🔁 Ver outra vez' : '▶ Continuar';
+      const notas = Object.values(leituras).filter(e => e.melhor != null).map(e => e.melhor);
+      if (fim && notas.length) q('.aula-passo').innerHTML = `🎤 Reading: <b>${Math.round(notas.reduce((a, b) => a + b, 0) / notas.length)}%</b> (${notas.length} sentences)`;
       if (fim) i = -1;
     }
     q('[data-a=play]').onclick = () => {

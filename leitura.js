@@ -112,3 +112,6 @@ const Leitura = (() => {
 
   return { montar, comparar, acordarSom, suportado: !!SR, PASSA };
 })();
+
+// As aulas (aulas.js) usam-no através de window.Leitura.
+window.Leitura = Leitura;
