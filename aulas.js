@@ -166,7 +166,7 @@ const Aulas = (() => {
     function falar(k) {
       audio.src = urlAudio(k + 1);
       audio.onended = () => { if (aTocar && i === k) depois(() => (i < P.length - 1 ? mostrar(i + 1) : parar(true)), 900); };
-      depois(() => audio.play().catch(() => {}), 1300); // a câmara chega primeiro
+      depois(() => (window.Leitura?.acordarSom() || Promise.resolve()).then(() => audio.play().catch(() => {})), 1300); // a câmara chega primeiro (e as colunas "acordam" na 1.ª vez)
     }
     function parar(fim) {
       aTocar = false; audio.pause();

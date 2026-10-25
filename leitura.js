@@ -51,7 +51,7 @@ const Leitura = (() => {
     const tocar = () => {
       if (!som) return;
       som.pause(); som.currentTime = 0;
-      const ir = () => setTimeout(() => som.play().catch(() => {}), 250);
+      const ir = () => Leitura.acordarSom().then(() => som.play().catch(() => {}));
       if (som.readyState >= 4) ir(); else { som.addEventListener('canplaythrough', ir, { once: true }); som.load(); }
     };
     const desenhar = (res, msg) => {
@@ -92,5 +92,21 @@ const Leitura = (() => {
     if (!SR && !estado.passou) { estado.passou = true; aoPassar?.(); }
   }
 
-  return { montar, comparar, suportado: !!SR, PASSA };
+  // Na 1.ª vez que se toca um som, as colunas/auscultadores ainda estão a "acordar" e cortam o início. Toca-se
+  // primeiro ~0,8 s de silêncio (um tom com volume zero) e só depois o som a sério. Depois disso já não é preciso.
+  let acordado = null;
+  function acordarSom() {
+    if (acordado) return acordado;
+    acordado = new Promise(resolve => {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator(), g = ctx.createGain();
+        g.gain.value = 0.0001; osc.connect(g); g.connect(ctx.destination);
+        ctx.resume().then(() => { osc.start(); setTimeout(() => { osc.stop(); resolve(); }, 800); });
+      } catch { resolve(); }
+    });
+    return acordado;
+  }
+
+  return { montar, comparar, acordarSom, suportado: !!SR, PASSA };
 })();
