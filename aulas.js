@@ -227,6 +227,7 @@ const Aulas = (() => {
     q('[data-a=play]').onclick = () => {
       if (aTocar) return parar();
       aTocar = true; q('[data-a=play]').textContent = '⏸ Pausa';
+      window.Leitura?.acordarSom(); // tem de começar no próprio clique (o browser só deixa ligar o som com um clique)
       mostrar(Math.max(i, 0));
     };
     q('[data-a=seg]').onclick = () => mostrar(i + 1);

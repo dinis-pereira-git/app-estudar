@@ -106,6 +106,8 @@ const Leitura = (() => {
         osc.frequency.value = 30; g.gain.value = 0.001; osc.connect(g); g.connect(ctx.destination);
         ctx.resume().then(() => { osc.start(); setTimeout(resolve, 800); }).catch(resolve);
       } catch { resolve(); }
+      // Nunca deixar o som à espera: se o browser não deixar ligar o tom (sem clique), segue ao fim de 1 s.
+      setTimeout(resolve, 1000);
     });
     return acordado;
   }
