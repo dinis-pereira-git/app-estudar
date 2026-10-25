@@ -10,7 +10,11 @@ const App = (() => {
   const { SUPABASE_URL, SUPABASE_KEY, BUCKET } = window.CONFIG;
   // "?local" no endereço força o modo local (útil para testar no PC do pai sem login).
   const forcarLocal = new URLSearchParams(location.search).has('local');
+  // Link "recuperar palavra-passe" do email: vem com type=recovery no endereço (é preciso ver isto antes de o
+  // Supabase limpar o endereço). Nesse caso a app abre o ecrã para escrever a palavra-passe nova.
+  let emRecuperacao = /type=recovery/.test(location.hash + location.search);
   const db = SUPABASE_URL && SUPABASE_KEY && !forcarLocal ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  db?.auth.onAuthStateChange(evento => { if (evento === 'PASSWORD_RECOVERY') { emRecuperacao = true; ecraNovaPassword(); } });
   let contaAtual = ''; // email da conta com que se entrou (mostrado no painel)
   let filtroPainel = 'todos'; // filtro da tabela das correções no painel
 
@@ -2129,7 +2133,15 @@ const App = (() => {
           ${mensagem ? `<p class="erro">${esc(mensagem)}</p>` : ''}
           <button class="btn prim grande">Entrar</button>
         </form>
+        <p><button class="btn mini" id="esqueci">🔑 Esqueci-me da palavra-passe</button></p>
       </section>`);
+    // Envia o email do Supabase com o link para escolher uma palavra-passe nova (volta a esta app).
+    document.getElementById('esqueci').onclick = async () => {
+      const email = document.getElementById('email').value.trim();
+      if (!email) return ecraLogin('Escreve primeiro o teu email e depois carrega em «Esqueci-me da palavra-passe».');
+      const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+      ecraLogin(error ? 'Não foi possível enviar o email: ' + error.message : '📧 Enviámos um email com um link para escolheres uma palavra-passe nova.');
+    };
     document.getElementById('login').onsubmit = async e => {
       e.preventDefault();
       const { error } = await db.auth.signInWithPassword({
@@ -2139,6 +2151,34 @@ const App = (() => {
       if (error) return ecraLogin('Email ou palavra-passe errados.');
       location.hash = '#/';
       iniciar();
+    };
+  }
+
+  // Palavra-passe nova (depois de abrir o link de recuperação do email). Quem escreve é a pessoa; a app só a envia
+  // ao Supabase (db.auth.updateUser) e não a guarda em lado nenhum.
+  function ecraNovaPassword(mensagem = '') {
+    render(`
+      <section class="cartao centro login">
+        <h1>🔑 Nova palavra-passe</h1>
+        <p>Escreve a palavra-passe nova duas vezes (pelo menos 6 letras ou números).</p>
+        <form id="nova-pass">
+          <label>Palavra-passe nova<input type="password" id="pass1" autocomplete="new-password" minlength="6" required></label>
+          <label>Repete a palavra-passe<input type="password" id="pass2" autocomplete="new-password" minlength="6" required></label>
+          ${mensagem ? `<p class="erro">${esc(mensagem)}</p>` : ''}
+          <button class="btn prim grande">Guardar</button>
+        </form>
+      </section>`);
+    document.getElementById('nova-pass').onsubmit = async e => {
+      e.preventDefault();
+      const p1 = document.getElementById('pass1').value, p2 = document.getElementById('pass2').value;
+      if (p1 !== p2) return ecraNovaPassword('As duas palavras-passe não são iguais.');
+      const { error } = await db.auth.updateUser({ password: p1 });
+      if (error) return ecraNovaPassword('Não foi possível mudar: ' + error.message);
+      emRecuperacao = false;
+      history.replaceState(null, '', location.pathname + location.search + '#/');
+      render(`<section class="cartao centro login"><h1>✅ Palavra-passe mudada</h1><p>Já podes usar a palavra-passe nova.</p>
+        <button class="btn prim grande" id="continuar">Continuar</button></section>`);
+      document.getElementById('continuar').onclick = () => iniciar();
     };
   }
 
@@ -2209,7 +2249,8 @@ const App = (() => {
   async function iniciar() {
     if (db) {
       const { data } = await db.auth.getSession();
-      if (!data.session) return ecraLogin();
+      if (!data.session) return ecraLogin(emRecuperacao ? 'O link de recuperação já não é válido (só funciona uma vez e expira). Pede outro em «Esqueci-me da palavra-passe».' : '');
+      if (emRecuperacao) return ecraNovaPassword();
       $sair.hidden = false;
       contaAtual = data.session.user?.email || '';
       $sair.title = 'Conta: ' + contaAtual;
