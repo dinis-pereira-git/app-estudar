@@ -1018,6 +1018,7 @@ const App = (() => {
         </div>
         <div class="ajuda-texto">
           <b>${T('📍 Procura na página', '📍 Look at page')} ${q.pagina}:</b><br>${esc(q.onde)}
+          ${q.dica ? `<div class="dica-materia">💡 ${esc(q.dica)}</div>` : ''}
           ${z ? `<div class="recorte" data-ampliar="${src}"${zona}><img src="${src}" alt="Zona da página ${q.pagina} onde está a resposta" style="${estiloRecorte(z)}"></div>` : ''}
           <span class="muted">${T('Clica na página para a ver em grande.', 'Click the page to see it bigger.')}</span>
         </div>

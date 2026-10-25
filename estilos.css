@@ -398,3 +398,5 @@ th { color: var(--muted); font-weight: 600; }
 .balao .traducao { font-size: .85em; margin-top: 4px; }
 .conversa-msg { font-weight: 700; margin: 0; }
 .conversa-escrever { flex: 1; min-width: 180px; padding: 8px; border-radius: 8px; border: 1px solid #bbb; font-size: 1em; }
+
+.dica-materia { margin: 8px 0; padding: 8px 10px; background: #fff8e1; border-left: 4px solid #ffb300; border-radius: 6px; line-height: 1.45; }
