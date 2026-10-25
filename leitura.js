@@ -115,7 +115,7 @@ const Leitura = (() => {
     return acordado;
   }
 
-  return { montar, comparar, acordarSom, suportado: !!SR, PASSA };
+  return { montar, comparar, acordarSom, ouvir: ouvirUmaVez, suportado: !!SR, PASSA };
 })();
 
 // As aulas (aulas.js) usam-no através de window.Leitura.

@@ -388,3 +388,13 @@ th { color: var(--muted); font-weight: 600; }
 .aula-parte.voz-menina, .aula-parte.voz-harry { padding-left: 10px; border-left: 4px solid #7bc043; }
 .aula-ler { margin: 8px 0; }
 .aula-ler .leitura { border: 3px solid #ff7a00; }
+
+/* Conversa guiada (Inglês) */
+.conversa { display: flex; flex-direction: column; gap: 10px; }
+.conversa-topo { display: flex; justify-content: space-between; align-items: center; }
+.balao { padding: 10px 14px; border-radius: 16px; max-width: 85%; font-size: 1.1em; line-height: 1.4; }
+.balao.prof { background: #e8f1ff; border: 2px solid #9cc0ff; align-self: flex-start; border-bottom-left-radius: 4px; }
+.balao.eu { background: #eaf7e4; border: 2px solid #9fd88a; align-self: flex-end; border-bottom-right-radius: 4px; }
+.balao .traducao { font-size: .85em; margin-top: 4px; }
+.conversa-msg { font-weight: 700; margin: 0; }
+.conversa-escrever { flex: 1; min-width: 180px; padding: 8px; border-radius: 8px; border: 1px solid #bbb; font-size: 1em; }

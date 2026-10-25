@@ -6,7 +6,15 @@ const Armazenamento = (() => {
   const CHAVE = 'app-estudar-v1';
   // Nomes antigos de livros, de antes da organização por disciplina/livro.
   const ALIAS = { 'hgp-c3': 'hgp-viajantes6' };
-  const vazio = () => ({ tempoPorDia: {}, tempoPorDiaLivro: {}, paginas: {}, testes: [], historico: {}, avaliacoes: [] });
+  const vazio = () => ({ tempoPorDia: {}, tempoPorDiaLivro: {}, paginas: {}, testes: [], conversas: [], historico: {}, avaliacoes: [] });
+  // As conversas guiadas de Inglês (modo 'conversa') vão para a mesma tabela do servidor que os testes, mas na app
+  // ficam à parte (estado.conversas): não têm níveis nem perguntas do banco e não contam nas tabelas de progresso.
+  const eConversa = t => t.modo === 'conversa';
+  function separarConversas() {
+    estado.conversas = [...(estado.conversas || []).filter(c => !estado.testes.some(t => t.id === c.id)), ...estado.testes.filter(eConversa)]
+      .filter((c, i, l) => l.findIndex(x => x.id === c.id) === i).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+    estado.testes = estado.testes.filter(t => !eConversa(t));
+  }
   let estado = vazio();
   let db = null;              // cliente Supabase, ou null em modo local
   let tempoPendente = {};     // "dia|livro|pagina" → segundos ainda por enviar
@@ -60,6 +68,7 @@ const Armazenamento = (() => {
     if (!db) {
       try { estado = Object.assign(vazio(), JSON.parse(localStorage.getItem(CHAVE)) || {}); } catch {}
       estado.testes.forEach(normalizarTeste);
+      separarConversas();
       return;
     }
     // Esta conta é responsável por alguém? Então mostra os dados dessa pessoa, sem gravar nada.
@@ -88,6 +97,7 @@ const Armazenamento = (() => {
     escreverPendentes(pendentes);
     estado.testes.push(...pendentes.map(normalizarTeste));
     estado.testes.sort((a, b) => String(a.data).localeCompare(String(b.data)));
+    separarConversas();
     estado.testes.forEach(contarNoHistorico);
     estado.avaliacoes = avaliacoes.data;
 
@@ -150,8 +160,8 @@ const Armazenamento = (() => {
     // Cada resposta conta para o histórico da pergunta: as erradas (ou certas com ajuda)
     // voltam a aparecer mais vezes nos testes seguintes.
     registarTeste(teste) {
-      estado.testes.push(teste);
-      contarNoHistorico(teste);
+      if (eConversa(teste)) estado.conversas.push(teste);
+      else { estado.testes.push(teste); contarNoHistorico(teste); }
       guardarLocal();
       if (!db || soLeitura) return;
       // Primeiro guarda-se neste computador; só sai da lista depois de o servidor confirmar.
@@ -195,6 +205,7 @@ const Armazenamento = (() => {
       const ids = new Set(estado.testes.map(t => String(t.id)));
       const novos = lista.filter(t => !ids.has(String(t.id)));
       for (const t of novos) {
+        if (eConversa(t)) { estado.conversas.push(t); continue; }
         estado.testes.push(normalizarTeste(t));
         contarNoHistorico(t);
         if (db) { escreverPendentes([...lerPendentes(), t]); await enviarTestePendente(t); }
@@ -242,6 +253,7 @@ const Armazenamento = (() => {
         if (erro) throw erro.error;
       }
       estado.testes = [];
+      estado.conversas = [];
       estado.historico = {};
       for (const p of Object.values(estado.paginas)) { p.estudada = false; delete p.data; if (tempos) p.segundos = 0; }
       if (tempos) { estado.tempoPorDia = {}; tempoPendente = {}; }
@@ -266,10 +278,11 @@ const Armazenamento = (() => {
       const servidor = data.map(r => normalizarTeste(r.registo));
       const ids = new Set(servidor.map(t => String(t.id)));
       const locais = lerPendentes().filter(t => !ids.has(String(t.id)));
-      const novos = [...servidor, ...locais].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      const novos = [...servidor, ...locais].filter(t => !eConversa(t) || !estado.conversas.some(c => c.id === t.id)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
       const assinatura = l => JSON.stringify(l.map(t => [t.id, t.estado, t.percent, t.respostas.map(r => [r.pontuacao, r.reacao?.concorda ?? null, r.respostaRevisao || ''])]));
       if (assinatura(novos) === assinatura(estado.testes)) return false;
       estado.testes = novos;
+      separarConversas();
       estado.historico = {};
       estado.testes.forEach(contarNoHistorico);
       return true;

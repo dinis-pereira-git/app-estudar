@@ -813,6 +813,7 @@ const App = (() => {
     const voltar = a ? `<a href="#/t/${a.id}" class="voltar">← ${esc(nomeAvaliacao(a))}</a>` : `<a href="#/l/${lid}" class="voltar">← ${esc(l.titulo)}</a>`;
     const temVideo = licao.videoDrive || licao.videoDriveCurto;
     const aula = l.aulas?.[chaveLicao(nums)];
+    const conversa = l.conversas?.[chaveLicao(nums)];
     const paginaTeste = nums.find(p => pagsTeste.includes(p));
     const acoesLicao = `
       <div class="acoes-licao">
@@ -839,6 +840,7 @@ const App = (() => {
           <h1>${esc(licao.titulo)} <span class="muted titulo-sub">· páginas ${nums[0]}${nums.length > 1 ? ' a ' + nums.at(-1) : ''}</span></h1>
         </div>
         ${aula ? `<div class="cartao video-licao"><h2>🎨 Aula com as imagens do livro<span class="muted titulo-sub">${minutos(duracaoDe(l, nums).aula)}</span></h2><div id="aula-visual"></div></div>` : ''}
+        ${conversa ? `<div class="cartao video-licao"><h2>🗣️ Talk with the teacher<span class="muted titulo-sub">${conversa.falas.length} questions</span></h2><div id="conversa"></div></div>` : ''}
         ${temVideo ? `<div class="cartao video-licao"><h2>🎬 Vídeo da lição (NotebookLM)<span class="muted titulo-sub">${minutos(duracaoDe(l, nums).video)}</span></h2>${blocoVideo(l, n)}</div>` : licao.video ? '<p class="muted">🎬 O vídeo do NotebookLM desta lição ainda não está pronto.</p>' : ''}
         <p class="muted">Vê o vídeo e lê as páginas com atenção (clica numa página para a ver em grande). Depois marca a lição como estudada e testa-te.</p>
         ${acoesLicao}
@@ -854,6 +856,17 @@ const App = (() => {
     if (aula) Aulas.montar(document.getElementById('aula-visual'), aula, {
       urlPagina: p => img(lid, pagina(lid, p)),
       urlAudio: (k, parte) => l.url(audioAula(chaveLicao(nums), k, parte)),
+    });
+    // Conversa guiada: o resultado fica guardado como um treino (modo 'conversa'), que o pai vê no Painel.
+    if (conversa) Conversa.montar(document.getElementById('conversa'), conversa, {
+      urlAudio: nome => l.url(`audio/conversas/${nome}.mp3`),
+      verificar: verificarCurta,
+      aoAcabar: res => A.registarTeste({
+        id: Date.now(), data: new Date().toISOString(), disciplina: l.disciplina, livro: lid, avaliacao: a?.id ?? null, avaliacaoNome: a ? nomeAvaliacao(a) : null,
+        modo: 'conversa', estado: 'feito', tipo: 'licao', pagina: nums[0], licao: nums, paginas: [nums[0], nums.at(-1)], dificuldade: 'facil',
+        total: res.total, pontos: res.certas, percent: res.percent,
+        respostas: res.falas.map(f => ({ id: f.id, modo: 'conversa', pergunta: conversa.falas.find(x => x.id === f.id)?.prof, texto: f.ouvido, certa: f.certa, pontuacao: f.certa ? 1 : 0, tentativas: f.tentativas })),
+      }),
     });
     if (n !== nums[0]) document.getElementById('pag-' + n)?.scrollIntoView();
   }
@@ -1822,7 +1835,7 @@ const App = (() => {
       for (const [dia, s] of Object.entries(A.estado.tempoPorDiaLivro?.[l.id] || {})) acc[dia] = (acc[dia] || 0) + s;
       return acc;
     }, {});
-    const e = !did ? A.estado : { ...A.estado, testes: A.estado.testes.filter(da), avaliacoes: A.estado.avaliacoes.filter(a => a.disciplina === did), tempoPorDia: tempoDia };
+    const e = !did ? A.estado : { ...A.estado, testes: A.estado.testes.filter(da), conversas: (A.estado.conversas || []).filter(da), avaliacoes: A.estado.avaliacoes.filter(a => a.disciplina === did), tempoPorDia: tempoDia };
     const separadores = `<div class="filtros-correcao separadores-painel">
       <a class="filtro ${!did ? 'ativo' : ''}" href="#/painel">📊 Geral</a>
       ${Object.values(disciplinas).map(d => `<a class="filtro ${d.id === did ? 'ativo' : ''}" href="#/painel/${d.id}">${d.icone || ''} ${esc(d.nome)}</a>`).join('')}
@@ -1844,7 +1857,7 @@ const App = (() => {
     if (!FILTROS_PAINEL[filtroPainel]) filtroPainel = 'todos';
     const todosTestes = [...e.testes].reverse();
     const reais = todosTestes.filter(FILTROS_PAINEL[filtroPainel].f);
-    const tipoTeste = t => t.modo === 'real' ? '🎓 Teste real' : t.modo === 'escola' ? '✍️ Escola' : '⚡ Escolha múltipla';
+    const tipoTeste = t => t.modo === 'conversa' ? '🗣️ Conversa' : t.modo === 'real' ? '🎓 Teste real' : t.modo === 'escola' ? '✍️ Escola' : '⚡ Escolha múltipla';
     const estadoTeste = t => t.modo === 'rapido' ? '<span class="chip ok">Automática</span>'
       : t.estado === 'corrigido' ? '<span class="chip ok">Corrigido</span>'
       : porCorrigir(t) ? `<span class="chip aviso">${t.modo === 'real' ? 'Por corrigir' : 'Por rever'}</span>` : '<span class="chip">Feito</span>';
@@ -2035,12 +2048,17 @@ const App = (() => {
           <tbody>${[...e.testes].reverse().slice(0, 15).map(t => `<tr><td>${dataCurta(t.data)}</td>
             <td>${esc(t.avaliacaoNome || '—')}</td>
             <td>${nomeTreino(t)}</td>
-            <td>${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯' : ''}</td>
+            <td>${t.modo === 'conversa' ? '🗣️ Conversa' : `${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade]?.nome || ''}${t.exato ? ' 🎯' : ''}`}</td>
             <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>${t.autoPercent != null ? ` <small class="muted">✋ ${t.autoPercent}%</small>` : ''}`
               : t.autoPercent != null ? `<span class="chip aviso">✋ ${t.autoPercent}% · ⏳ final</span>` : '<span class="chip aviso">Por corrigir</span>'}${t.voz != null ? ` <span class="chip" title="Leitura em voz alta">🎤 ${t.voz}%</span>` : ''}</td>
             <td>${comAjuda(t) ? `<span class="chip aviso">${comAjuda(t)} de ${t.total}</span>` : '—'}</td>
             <td>${autoavaliadas(t).length ? `${autoavaliadas(t).length}${autoavaliadas(t).some(r => !r.auditoria) ? ' <small class="muted">(por rever)</small>' : ''}` : '—'}</td></tr>`).join('')}</tbody>
         </table>` : '<p class="muted">Ainda não há treinos.</p>'}
+
+        ${e.conversas?.length ? `<h2>🗣️ Conversas de Inglês</h2>
+        <table><thead><tr><th>Data</th><th>Lição</th><th>Certas à 1.ª</th><th>Nota</th></tr></thead>
+          <tbody>${[...e.conversas].reverse().slice(0, 15).map(t => `<tr><td>${dataCurta(t.data)}</td><td>${nomeTreino(t)}</td>
+            <td>${t.pontos}/${t.total}</td><td><b>${t.percent}%</b></td></tr>`).join('')}</tbody></table>` : ''}
 
         <h2>Perguntas que custam mais</h2>
         <p class="muted">Perguntas que ela já falhou (ou só acertou com ajuda) alguma vez. <b>🔴 Ainda custa</b>: a última tentativa falhou ·
@@ -2171,6 +2189,11 @@ const App = (() => {
     const audios = Object.entries(aulas).flatMap(([k, a]) => a.passos.flatMap((p, i) => p.partes
       ? p.partes.map((_, j) => ({ imagem: audioAula(k, i + 1, j + 1) })) : [{ imagem: audioAula(k, i + 1) }]));
     if (leitura) perguntas.forEach(q => audios.push({ imagem: `${leitura.audio}${q.id}-p.mp3` }, { imagem: `${leitura.audio}${q.id}-r.mp3` }));
+    // conversas guiadas (Inglês): { 'p010_p011': { titulo, falas } }, com as vozes em audio/conversas/<id>-p|m.mp3
+    const conversas = Object.assign({}, ...bancos.map(b => b.conversas || {}));
+    const somConversa = n => `audio/conversas/${n}.mp3`;
+    if (Object.keys(conversas).length) ['ok1', 'ok2', 'ok3'].forEach(n => audios.push({ imagem: somConversa(n) }));
+    Object.values(conversas).forEach(c => c.falas.forEach(f => audios.push({ imagem: somConversa(f.id + '-p') }, { imagem: somConversa(f.id + '-m') })));
     let url = f => '../' + info.base + f;
     if (db) {
       const caminhos = [...paginas, ...Object.values(figuras), ...audios].map(p => info.base + p.imagem);
@@ -2179,7 +2202,7 @@ const App = (() => {
       const urls = Object.fromEntries(assinados.data.map(s => [s.path, s.signedUrl]));
       url = f => urls[info.base + f];
     }
-    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, figuras, aulas, duracoes, leitura, url };
+    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, figuras, aulas, duracoes, leitura, conversas, url };
   }
 
   async function iniciar() {
