@@ -853,7 +853,7 @@ const App = (() => {
     $app.querySelectorAll('[data-desmarcar]').forEach(bt => bt.onclick = () => { nums.forEach(p => A.desmarcarEstudada(lid, p)); ecraEstudar(lid, n, a); });
     if (aula) Aulas.montar(document.getElementById('aula-visual'), aula, {
       urlPagina: p => img(lid, pagina(lid, p)),
-      urlAudio: k => l.url(audioAula(chaveLicao(nums), k)),
+      urlAudio: (k, parte) => l.url(audioAula(chaveLicao(nums), k, parte)),
     });
     if (n !== nums[0]) document.getElementById('pag-' + n)?.scrollIntoView();
   }
@@ -2135,7 +2135,8 @@ const App = (() => {
     return JSON.parse(await data.text());
   }
 
-  const audioAula = (chave, k) => `aulas/${chave}/${String(k).padStart(2, '0')}.mp3`;
+  // Narração de um passo (NN.mp3) ou de uma parte de um passo (NN-PP.mp3, aulas de Inglês).
+  const audioAula = (chave, k, parte) => `aulas/${chave}/${String(k).padStart(2, '0')}${parte ? '-' + String(parte).padStart(2, '0') : ''}.mp3`;
   // Duração para mostrar ao lado dos ícones: " · 7 min".
   const minutos = s => s ? ` · ${Math.max(1, Math.round(s / 60))} min` : '';
   const duracaoDe = (l, nums) => l.duracoes?.[chaveLicao(nums)] || {};
@@ -2167,7 +2168,8 @@ const App = (() => {
     const duracoes = Object.assign({}, ...bancos.map(b => b.duracoes || {}));
     // leitura: { lingua: 'en-GB', audio: 'audio/' } — perguntas com voz gravada e leitura em voz alta (Inglês).
     const leitura = bancos.find(b => b.leitura)?.leitura || null;
-    const audios = Object.entries(aulas).flatMap(([k, a]) => a.passos.map((_, i) => ({ imagem: audioAula(k, i + 1) })));
+    const audios = Object.entries(aulas).flatMap(([k, a]) => a.passos.flatMap((p, i) => p.partes
+      ? p.partes.map((_, j) => ({ imagem: audioAula(k, i + 1, j + 1) })) : [{ imagem: audioAula(k, i + 1) }]));
     if (leitura) perguntas.forEach(q => audios.push({ imagem: `${leitura.audio}${q.id}-p.mp3` }, { imagem: `${leitura.audio}${q.id}-r.mp3` }));
     let url = f => '../' + info.base + f;
     if (db) {

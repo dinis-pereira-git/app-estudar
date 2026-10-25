@@ -376,3 +376,13 @@ th { color: var(--muted); font-weight: 600; }
 .leitura-msg { margin: 4px 0 0; }
 .aviso-ler { background: var(--aviso-fundo); color: var(--aviso); padding: 8px 12px; border-radius: 10px; font-weight: 600; }
 .aula-traducao { margin: -2px 0 8px; color: var(--muted); font-style: italic; font-size: 17px; line-height: 1.4; }
+
+/* Aulas em partes (Inglês): explicação da professora vs. exemplos, e pausas para repetir/pensar */
+.aula-parte { margin: 4px 0; color: var(--muted); transition: color .3s; }
+.aula-parte.dita { color: var(--texto); }
+.aula-parte.ativa { color: var(--texto); font-weight: 600; }
+.aula-parte.voz-ex { padding-left: 10px; border-left: 4px solid #ff7a00; }
+.aula-parte.voz-ex.ativa { color: #b4441f; }
+.aula-pausa { position: absolute; right: 12px; bottom: 12px; background: #ff7a00; color: #fff; font-weight: 800; font-size: clamp(18px, 3vw, 28px); padding: 8px 16px; border-radius: 999px; box-shadow: 0 2px 8px #0003; animation: aula-pulsar 1s ease-in-out infinite; }
+.aula-parte.voz-texto { padding-left: 10px; border-left: 4px solid var(--prim); font-style: italic; }
+.aula-parte.voz-menina, .aula-parte.voz-harry { padding-left: 10px; border-left: 4px solid #7bc043; }

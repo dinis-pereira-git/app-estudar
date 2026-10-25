@@ -84,14 +84,14 @@ const Aulas = (() => {
   function montar(el, aula, { urlPagina, urlAudio }) {
     el.innerHTML = `
       <div class="aula">
-        <div class="aula-palco"><div class="aula-folha"><img alt=""></div><div class="aula-anim"></div><div class="aula-resumo"></div></div>
+        <div class="aula-palco"><div class="aula-folha"><img alt=""></div><div class="aula-anim"></div><div class="aula-resumo"></div><div class="aula-pausa" hidden></div></div>
         <div class="aula-legenda"></div>
         <div class="aula-traducao" hidden></div>
         <div class="aula-controlos">
           <button class="btn" data-a="ant">⏮</button>
           <button class="btn prim" data-a="play">▶ Começar a aula</button>
           <button class="btn" data-a="seg">⏭</button>
-          ${aula.passos.some(p => p.legenda) ? '<button class="btn" data-a="leg">🇵🇹 Subtitles</button>' : ''}
+          ${aula.passos.some(p => p.legenda || p.partes?.some(x => x.legenda)) ? '<button class="btn" data-a="leg">🇵🇹 Subtitles</button>' : ''}
           <span class="muted aula-passo"></span>
         </div>
         <div class="aula-barra"><div></div></div>
@@ -134,6 +134,39 @@ const Aulas = (() => {
       }
     }
 
+    // Passos "em partes" (aulas de Inglês): cada parte tem a sua voz (prof = explica, ex = exemplo), as suas marcas
+    // no livro e, às vezes, uma pausa para a Leonor repetir (🔁 Repeat!) ou pensar (🤔 Think!).
+    // Quem fala: prof = professora (explica), ex = exemplos, texto = leitura do livro, menina/harry = diálogo.
+    const ICONE_VOZ = { ex: '🗣️ ', texto: '📖 ', menina: '👧 ', harry: '👦 ' };
+    const marcasParte = parte => {
+      if (!parte?.marcas) return;
+      folha.querySelectorAll('.aula-marca').forEach(e => e.remove());
+      desenharMarcas({ marcas: parte.marcas });
+    };
+    function ativarParte(p, j) {
+      el.querySelectorAll('.aula-parte').forEach((e, k) => { e.classList.toggle('ativa', k === j); e.classList.toggle('dita', k < j); });
+      marcasParte(p.partes[j]);
+      const $tr = q('.aula-traducao');
+      $tr.innerHTML = p.partes[j].legenda || '';
+      $tr.hidden = !p.partes[j].legenda || !verLegendas();
+    }
+    function tocarParte(k, j) {
+      const p = P[k], parte = p.partes[j];
+      ativarParte(p, j);
+      audio.src = urlAudio(k + 1, j + 1);
+      audio.onended = () => {
+        if (!aTocar || i !== k) return;
+        const seguir = () => (j + 1 < p.partes.length ? tocarParte(k, j + 1) : depois(() => (i < P.length - 1 ? mostrar(i + 1) : parar(true)), 900));
+        if (parte.pausa) {
+          const $p = q('.aula-pausa');
+          $p.textContent = parte.acao === 'pensar' ? '🤔 Think!' : parte.acao === 'responder' ? '🗣️ Your turn! Answer.' : '🔁 Repeat!';
+          $p.hidden = false;
+          depois(() => { $p.hidden = true; seguir(); }, parte.pausa * 1000);
+        } else depois(seguir, 450);
+      };
+      (window.Leitura?.acordarSom() || Promise.resolve()).then(() => audio.play().catch(() => {}));
+    }
+
     function mostrar(n) {
       limpar(); audio.pause();
       i = Math.max(0, Math.min(P.length - 1, n));
@@ -153,17 +186,22 @@ const Aulas = (() => {
         const pronto = () => { apontar(p); depois(() => desenharMarcas(p), 1200); };
         if (img.dataset.pag !== String(p.pag)) { img.onload = pronto; img.dataset.pag = p.pag; img.src = src; } else pronto();
       }
-      q('.aula-legenda').innerHTML = p.texto;
+      q('.aula-pausa').hidden = true;
+      q('.aula-legenda').innerHTML = p.partes
+        ? p.partes.map(pt => `<p class="aula-parte voz-${pt.voz || 'prof'}">${ICONE_VOZ[pt.voz] || ''}${pt.texto}</p>`).join('')
+        : p.texto;
       // Aulas de Inglês: legenda em português (liga/desliga; a escolha fica guardada neste browser).
       const $tr = q('.aula-traducao');
-      $tr.innerHTML = p.legenda || '';
-      $tr.hidden = !p.legenda || !verLegendas();
+      $tr.innerHTML = p.partes ? (p.partes[0].legenda || '') : (p.legenda || '');
+      $tr.hidden = !$tr.innerHTML || !verLegendas();
+      if (p.partes && !aTocar) depois(() => ativarParte(p, 0), 1250);
       q('.aula-passo').textContent = `${i + 1} / ${P.length}`;
       q('.aula-barra div').style.width = `${100 * (i + 1) / P.length}%`;
       if (aTocar) falar(i);
     }
 
     function falar(k) {
+      if (P[k].partes) return depois(() => tocarParte(k, 0), 1300);
       audio.src = urlAudio(k + 1);
       audio.onended = () => { if (aTocar && i === k) depois(() => (i < P.length - 1 ? mostrar(i + 1) : parar(true)), 900); };
       depois(() => (window.Leitura?.acordarSom() || Promise.resolve()).then(() => audio.play().catch(() => {})), 1300); // a câmara chega primeiro (e as colunas "acordam" na 1.ª vez)
