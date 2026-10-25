@@ -6,12 +6,15 @@ const Leitura = (() => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const PASSA = 70, TENTATIVAS = 3;
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’‘]/g, "'").replace(/[^a-z0-9']+/g, ' ').replace(/(^|\s)'+|'+(?=\s|$)/g, '$1').trim(); // it's fica it's (não "it s")
   // O reconhecimento escreve os números em algarismos ("3", "22nd"): passam a palavras para comparar com a frase.
   const UNID = 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(' ');
-  const DEZ = ',,twenty thirty forty fifty sixty seventy eighty ninety'.split(',');
+  const DEZ = ',,twenty,thirty,forty,fifty,sixty,seventy,eighty,ninety'.split(',');
   const extenso = n => n < 20 ? UNID[n] : n < 100 ? DEZ[Math.floor(n / 10)] + (n % 10 ? ' ' + UNID[n % 10] : '') : String(n);
-  const numeros = s => s.replace(/\b(\d{1,2})(st|nd|rd|th)?\b/gi, (_, d) => ' ' + extenso(+d) + ' ');
+  // Ordinais (22nd) como se dizem: twenty second.
+  const ORD = { one: 'first', two: 'second', three: 'third', five: 'fifth', eight: 'eighth', nine: 'ninth', twelve: 'twelfth' };
+  const ordinal = n => { const p = extenso(n).split(' '), u = p.pop(); return [...p, ORD[u] || (u.endsWith('y') ? u.slice(0, -1) + 'ieth' : u + 'th')].join(' '); };
+  const numeros = s => s.replace(/\b(\d{1,2})(st|nd|rd|th)?\b/gi, (_, d, o) => ' ' + (o ? ordinal(+d) : extenso(+d)) + ' ');
   // Palavras da frase a ler (os espaços em branco ___ não contam).
   const palavras = s => norm(numeros(String(s || '').replace(/_{2,}/g, ' ').replace(/-/g, ' '))).split(' ').filter(Boolean);
 
