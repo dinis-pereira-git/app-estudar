@@ -1161,6 +1161,7 @@ const App = (() => {
           <h3>${certa ? (teste.ajuda ? '👍 Certo, com ajuda!' : '🎉 Muito bem! Legendaste tudo.') : `🙂 Acertaste ${r.legendasCertas.filter(Boolean).length} de ${e.legendas.length}.`}</h3>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
+          ${leituraLivro() ? '<div id="leitura-r"></div>' : ''}
           ${botaoMelhorar(r)}
           ${botaoSeguinte()}
         </div>`;
@@ -1173,6 +1174,7 @@ const App = (() => {
           <p><b>Resposta:</b> ${esc(e.modelo)}</p>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
+          ${leituraLivro() ? '<div id="leitura-r"></div>' : ''}
           ${botaoMelhorar(r)}
           <div class="linha-botoes esquerda">
             ${certa ? '' : '<button class="btn" id="acertei">A minha resposta também está certa</button>'}
@@ -1197,6 +1199,7 @@ const App = (() => {
           <h3>${certa ? (e.minimo && e.minimo < e.pontos.length ? `🎉 Tinhas os ${e.minimo} pontos-chave pedidos!` : '🎉 Tinhas todos os pontos-chave!') : r.pontuacao > 0 ? `🙂 Tinhas ${r.marcados} de ${Math.min(e.minimo || e.pontos.length, e.pontos.length)} pontos-chave.` : '💪 Não faz mal, vamos ver onde está.'}</h3>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
+          ${leituraLivro() ? '<div id="leitura-r"></div>' : ''}
           ${botaoMelhorar(r)}
           ${botaoSeguinte()}
         </div>`;
@@ -1206,7 +1209,11 @@ const App = (() => {
       <section class="cartao teste">
         ${topoPergunta(q)}
         ${imagemPergunta(q)}
+        ${q.emoji ? `<div class="emoji-pergunta">${q.emoji}</div>` : ''}
         <h2 class="enunciado">${esc(e.pergunta || q.pergunta)}</h2>
+        ${q.traducao ? `<p class="traducao-linha"><button class="btn mini" id="traducao">🇵🇹 Tradução</button>
+          <span class="traducao" ${verTraducao() ? '' : 'hidden'}>${esc(q.traducao)}</span></p>` : ''}
+        ${leituraLivro() && !r ? '<div id="leitura-p"></div>' : ''}
         ${corpo}
       </section>`);
     ligarAcoesTeste(q);
@@ -1228,6 +1235,11 @@ const App = (() => {
     document.getElementById('ajuda')?.addEventListener('click', () => { teste.ajuda = true; ecraPergunta(); });
     document.getElementById('seguinte')?.addEventListener('click', seguinte);
     ligarMelhorar(() => r, () => ecraPergunta());
+    document.getElementById('traducao')?.addEventListener('click', () => {
+      const t = $app.querySelector('.traducao'); t.hidden = !t.hidden;
+      try { localStorage.setItem('app-ver-traducao', t.hidden ? '0' : '1'); } catch {}
+    });
+    ligarLeitura(q, r);
     $app.querySelectorAll('[data-leg-ok]').forEach(c => c.onchange = () => {
       r.legendasAluna = [...$app.querySelectorAll('[data-leg-ok]:checked')].map(x => +x.dataset.legOk);
       pontuarLegenda(e, r);
@@ -1248,6 +1260,38 @@ const App = (() => {
       r.certa = r.pontuacao === 1;
       ecraPergunta();
     });
+  }
+
+  // ---------- ler em voz alta (Inglês) ----------
+  // A Leonor tem de ler a pergunta em voz alta antes de responder e, depois, a resposta certa antes de passar à
+  // seguinte (decisão do pai). Ver leitura.js. As notas da leitura ficam em r.leitura = { pergunta, resposta } (%).
+  const leituraLivro = () => livros[teste.livro]?.leitura;
+  const verTraducao = () => { try { return localStorage.getItem('app-ver-traducao') === '1'; } catch { return false; } };
+  const respostaParaLer = q => q.escrita.tipo === 'legenda' ? q.escrita.legendas.map(l => `${l.n}: ${l.modelo}.`).join(' ') : q.escrita.modelo;
+  function ligarLeitura(q, r) {
+    const leit = leituraLivro();
+    if (!leit) return;
+    const l = livros[teste.livro];
+    const url = suf => l.url(`${leit.audio}${q.id}-${suf}.mp3`);
+    const campos = () => $app.querySelectorAll('#f-escrita input, #f-escrita textarea, #f-escrita button');
+    if (!r) {
+      const estado = teste.leituraP ||= {};
+      const abrir = () => {
+        campos().forEach(x => { x.disabled = false; });
+        document.getElementById('aviso-ler')?.remove();
+        $app.querySelector('#f-escrita input, #f-escrita textarea')?.focus();
+      };
+      if (!estado.passou) {
+        campos().forEach(x => { x.disabled = true; });
+        document.getElementById('f-escrita')?.insertAdjacentHTML('beforebegin', '<p id="aviso-ler" class="aviso-ler">🔒 Primeiro lê a pergunta em voz alta (🎤). Depois já podes responder.</p>');
+      }
+      Leitura.montar(document.getElementById('leitura-p'), { titulo: '📖 Lê a pergunta em voz alta', texto: q.escrita.pergunta || q.pergunta, urlAudio: url('p'), lingua: leit.lingua, estado, aoPassar: abrir });
+    } else if (document.getElementById('leitura-r')) {
+      const estado = teste.leituraR ||= {};
+      const sg = document.getElementById('seguinte');
+      if (!estado.passou && sg) { sg.disabled = true; sg.title = 'Primeiro lê a resposta certa em voz alta'; }
+      Leitura.montar(document.getElementById('leitura-r'), { titulo: '🗣️ Agora lê a resposta certa em voz alta', texto: respostaParaLer(q), urlAudio: url('r'), lingua: leit.lingua, estado, aoPassar: () => { if (sg) { sg.disabled = false; sg.title = ''; } } });
+    }
   }
 
   function responder(i) {
@@ -1288,6 +1332,9 @@ const App = (() => {
     ecraPergunta();
   }
 
+  // Nota da voz (Inglês): média das leituras em voz alta (pergunta e resposta certa) do teste; null se não houve.
+  const notaVoz = respostas => { const v = respostas.flatMap(r => [r.leitura?.pergunta, r.leitura?.resposta]).filter(x => x != null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
+
   // Pontos: cada pergunta vale 1 (as de explicar valem a fração de pontos-chave); com ajuda vale metade.
   function calcularNota(respostas) {
     const pontos = Math.round(respostas.reduce((s, r) => s + (r.pontuacao || 0) * (r.ajuda ? 0.5 : 1), 0) * 10) / 10;
@@ -1298,6 +1345,9 @@ const App = (() => {
 
   function seguinte() {
     if (teste.registo) return; // evita gravar o mesmo teste duas vezes (duplo clique)
+    const rAtual = teste.respostas[teste.indice];
+    if (rAtual && (teste.leituraP || teste.leituraR)) rAtual.leitura = { pergunta: teste.leituraP?.melhor ?? null, resposta: teste.leituraR?.melhor ?? null };
+    teste.leituraP = teste.leituraR = null;
     teste.indice++;
     teste.ajuda = false;
     teste.respondida = null;
@@ -1329,7 +1379,7 @@ const App = (() => {
       avaliacao: a.id, avaliacaoNome: nomeAvaliacao(a), modo: teste.modo, estado: real ? 'por corrigir' : escola ? 'por rever' : 'feito',
       tipo: teste.tipoTreino || (teste.alvo == null ? 'global' : 'licao'), pagina: teste.alvo?.[0] ?? null, licao: teste.alvo,
       paginas: [teste.paginas[0], teste.paginas[teste.paginas.length - 1]],
-      dificuldade: teste.dificuldade, exato: teste.exato, foco: teste.foco, total: teste.respostas.length, ...nota, respostas: teste.respostas,
+      dificuldade: teste.dificuldade, exato: teste.exato, foco: teste.foco, total: teste.respostas.length, ...nota, voz: notaVoz(teste.respostas), respostas: teste.respostas,
     };
     A.registarTeste(teste.registo);
     location.hash = '#/resultado';
@@ -1351,6 +1401,7 @@ const App = (() => {
         <h1>${mensagem}</h1>
         ${pendente ? '<p class="muted">✋ A tua autoavaliação</p>' : ''}
         <div class="nota ${p >= 70 ? 'bom' : p >= 50 ? 'medio' : 'mau'}">${p}%</div>
+        ${t.voz != null ? `<p class="notas-duas">✍️ Escrita: <b>${p}%</b> · 🎤 Leitura em voz alta: <b>${t.voz}%</b></p>` : ''}
         <p>${t.pontos ?? t.autoPontos} pontos em ${t.total} perguntas · ${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯 Exato' : ''}</p>
         ${pendente ? '<p class="feedback ajuda">⏳ <b>Nota final pendente.</b> Esta é a nota que deste a ti própria. O pai vai pedir a revisão das tuas respostas e depois aparece a nota final.</p>' : ''}
         ${comAjuda(t) ? `<p class="feedback ajuda">💡 Usaste ajuda em ${comAjuda(t)} de ${t.total} perguntas. Essas valem metade e ainda não contam como sabidas — tenta outra vez sem ajuda.</p>` : ''}
@@ -1982,7 +2033,7 @@ const App = (() => {
             <td>${nomeTreino(t)}</td>
             <td>${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯' : ''}</td>
             <td>${t.percent != null ? `<b>${t.percent}%</b> <small class="muted">(${t.pontos}/${t.total})</small>${t.autoPercent != null ? ` <small class="muted">✋ ${t.autoPercent}%</small>` : ''}`
-              : t.autoPercent != null ? `<span class="chip aviso">✋ ${t.autoPercent}% · ⏳ final</span>` : '<span class="chip aviso">Por corrigir</span>'}</td>
+              : t.autoPercent != null ? `<span class="chip aviso">✋ ${t.autoPercent}% · ⏳ final</span>` : '<span class="chip aviso">Por corrigir</span>'}${t.voz != null ? ` <span class="chip" title="Leitura em voz alta">🎤 ${t.voz}%</span>` : ''}</td>
             <td>${comAjuda(t) ? `<span class="chip aviso">${comAjuda(t)} de ${t.total}</span>` : '—'}</td>
             <td>${autoavaliadas(t).length ? `${autoavaliadas(t).length}${autoavaliadas(t).some(r => !r.auditoria) ? ' <small class="muted">(por rever)</small>' : ''}` : '—'}</td></tr>`).join('')}</tbody>
         </table>` : '<p class="muted">Ainda não há treinos.</p>'}
@@ -2110,7 +2161,10 @@ const App = (() => {
     const aulas = Object.assign({}, ...bancos.map(b => b.aulas || {}));
     // duracoes: { p008_p009: { video, videoCurto, aula } } em segundos (ferramentas/duracoes.js).
     const duracoes = Object.assign({}, ...bancos.map(b => b.duracoes || {}));
+    // leitura: { lingua: 'en-GB', audio: 'audio/' } — perguntas com voz gravada e leitura em voz alta (Inglês).
+    const leitura = bancos.find(b => b.leitura)?.leitura || null;
     const audios = Object.entries(aulas).flatMap(([k, a]) => a.passos.map((_, i) => ({ imagem: audioAula(k, i + 1) })));
+    if (leitura) perguntas.forEach(q => audios.push({ imagem: `${leitura.audio}${q.id}-p.mp3` }, { imagem: `${leitura.audio}${q.id}-r.mp3` }));
     let url = f => '../' + info.base + f;
     if (db) {
       const caminhos = [...paginas, ...Object.values(figuras), ...audios].map(p => info.base + p.imagem);
@@ -2119,7 +2173,7 @@ const App = (() => {
       const urls = Object.fromEntries(assinados.data.map(s => [s.path, s.signedUrl]));
       url = f => urls[info.base + f];
     }
-    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, figuras, aulas, duracoes, url };
+    return { ...info, disciplina, paginas: paginas.sort((a, b) => a.numero - b.numero), perguntas, licoes, figuras, aulas, duracoes, leitura, url };
   }
 
   async function iniciar() {

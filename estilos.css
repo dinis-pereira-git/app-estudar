@@ -361,3 +361,17 @@ th { color: var(--muted); font-weight: 600; }
 
 /* Conta de responsável (só leitura) */
 .aviso-leitura { background: #eef3fd; color: var(--texto); text-align: center; padding: 8px 12px; font-size: 15px; border-bottom: 1px solid var(--linha); }
+
+/* Inglês: imagem em emoji, tradução e leitura em voz alta */
+.emoji-pergunta { font-size: 64px; text-align: center; line-height: 1.1; margin: 4px 0; }
+.traducao-linha { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
+.traducao { color: var(--muted); font-style: italic; }
+.leitura { border: 2px dashed var(--prim); border-radius: 12px; padding: 10px 12px; margin: 10px 0; background: #f6f9ff; }
+.leitura.passou { border-style: solid; border-color: var(--ok); background: var(--ok-fundo); }
+.leitura-topo { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.leitura-botoes { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
+.leitura-frase { font-size: 19px; line-height: 1.6; }
+.lida-ok { color: var(--ok); font-weight: 700; }
+.lida-falta { color: var(--mau); text-decoration: underline dotted; }
+.leitura-msg { margin: 4px 0 0; }
+.aviso-ler { background: var(--aviso-fundo); color: var(--aviso); padding: 8px 12px; border-radius: 10px; font-weight: 600; }

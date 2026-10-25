@@ -41,6 +41,25 @@
           ]
         }
       ]
+    },
+    {
+      "id": "en",
+      "nome": "Inglês",
+      "nomeCompleto": "Inglês",
+      "icone": "🇬🇧",
+      "livros": [
+        {
+          "id": "en-mylife6",
+          "titulo": "Inglês 6 · Starter e Unit 1 «My life»",
+          "descricao": "Manual de Inglês do 6.º ano, págs. 8–27: matéria do 1.º teste",
+          "base": "2026-2027/Ingles/EN6-MyLife/",
+          "bancos": [
+            "2026-2027/Ingles/EN6-MyLife/perguntas-en6.json",
+            "2026-2027/Ingles/EN6-MyLife/zonas.json",
+            "2026-2027/Ingles/EN6-MyLife/ajustes-perguntas.json"
+          ]
+        }
+      ]
     }
   ]
 }
