@@ -35,8 +35,8 @@ const Leitura = (() => {
       r.lang = lingua; r.interimResults = false; r.maxAlternatives = 5; r.continuous = false;
       let ok = false;
       r.onresult = ev => { ok = true; resolve([...ev.results[0]].map(a => a.transcript)); };
-      r.onerror = ev => reject(new Error(ev.error === 'not-allowed' ? 'O microfone não tem autorização. Carrega no cadeado da barra de endereço e permite o microfone.' : ev.error === 'no-speech' ? 'Não ouvi nada. Fala mais perto do microfone.' : 'Não consegui ouvir (' + ev.error + ').'));
-      r.onend = () => { if (!ok) reject(new Error('Não ouvi nada. Tenta outra vez.')); };
+      r.onerror = ev => reject(new Error(ev.error === 'not-allowed' ? 'The microphone is blocked. Click the padlock in the address bar and allow the microphone. (O microfone não tem autorização.)' : ev.error === 'no-speech' ? 'I did not hear anything. Speak closer to the microphone.' : 'I could not hear you (' + ev.error + ').'));
+      r.onend = () => { if (!ok) reject(new Error('I did not hear anything. Try again.')); };
       r.start();
     });
   }
@@ -45,6 +45,15 @@ const Leitura = (() => {
   // pelo chamador para não se perder ao redesenhar); aoPassar(): chamado a primeira vez que passa.
   function montar(el, { titulo, texto, urlAudio, lingua = 'en-GB', estado, aoPassar }) {
     if (!el) return;
+    // A voz é carregada logo que a pergunta aparece; ao carregar em Ouvir espera-se que esteja pronta e começa com
+    // uma pequena pausa (na 1.ª vez cortava o início: o som ainda não tinha carregado ou as colunas estavam a "acordar").
+    const som = urlAudio ? Object.assign(new Audio(), { preload: 'auto', src: urlAudio }) : null;
+    const tocar = () => {
+      if (!som) return;
+      som.pause(); som.currentTime = 0;
+      const ir = () => setTimeout(() => som.play().catch(() => {}), 250);
+      if (som.readyState >= 4) ir(); else { som.addEventListener('canplaythrough', ir, { once: true }); som.load(); }
+    };
     const desenhar = (res, msg) => {
       const frase = res ? res.palavras.map((p, i) => `<span class="${res.certas[i] ? 'lida-ok' : 'lida-falta'}">${esc(p)}</span>`).join(' ') : '';
       el.innerHTML = `
@@ -52,16 +61,16 @@ const Leitura = (() => {
           <div class="leitura-topo"><b>${titulo}</b>
             ${estado.melhor != null ? `<span class="chip ${estado.melhor >= PASSA ? 'ok' : 'aviso'}">🎤 ${estado.melhor}%</span>` : ''}</div>
           <div class="leitura-botoes">
-            ${urlAudio ? '<button class="btn" data-ouvir>🔊 Ouvir</button>' : ''}
-            ${SR ? '<button class="btn prim" data-ler>🎤 Ler em voz alta</button>' : ''}
+            ${urlAudio ? '<button class="btn" data-ouvir>🔊 Listen</button>' : ''}
+            ${SR ? '<button class="btn prim" data-ler>🎤 Read aloud</button>' : ''}
           </div>
           ${frase ? `<p class="leitura-frase">${frase}</p>` : ''}
           ${msg ? `<p class="leitura-msg">${msg}</p>` : ''}
-          ${!SR ? '<p class="muted">Este browser não consegue ouvir a tua leitura (usa o Chrome). Podes continuar.</p>' : ''}
+          ${!SR ? '<p class="muted">This browser cannot hear you (use Chrome). You can go on.</p>' : ''}
         </div>`;
-      el.querySelector('[data-ouvir]')?.addEventListener('click', () => { new Audio(urlAudio).play().catch(() => {}); });
+      el.querySelector('[data-ouvir]')?.addEventListener('click', tocar);
       el.querySelector('[data-ler]')?.addEventListener('click', async ev => {
-        const bt = ev.currentTarget; bt.disabled = true; bt.textContent = '🔴 A ouvir… lê agora';
+        const bt = ev.currentTarget; bt.disabled = true; bt.textContent = '🔴 Listening… read now';
         try {
           const alternativas = await ouvirUmaVez(lingua);
           const res = alternativas.map(a => comparar(texto, a)).sort((x, y) => y.pct - x.pct)[0];
@@ -69,9 +78,9 @@ const Leitura = (() => {
           estado.melhor = Math.max(estado.melhor ?? 0, res.pct);
           const antes = estado.passou;
           if (res.pct >= PASSA || estado.tentativas >= TENTATIVAS) estado.passou = true;
-          const msg = res.pct >= 90 ? '🌟 Excelente leitura!' : res.pct >= PASSA ? '👍 Muito bem!' :
-            estado.passou ? '🙂 Podes continuar — mas volta a treinar esta frase com o 🔊.' :
-            `Ouve outra vez (🔊) e tenta de novo — tentativa ${estado.tentativas} de ${TENTATIVAS}.`;
+          const msg = res.pct >= 90 ? '🌟 Excellent reading!' : res.pct >= PASSA ? '👍 Well done!' :
+            estado.passou ? '🙂 You can go on — but practise this sentence again with 🔊.' :
+            `Listen again (🔊) and try again — try ${estado.tentativas} of ${TENTATIVAS}.`;
           desenhar(res, msg);
           if (estado.passou && !antes) aoPassar?.();
         } catch (erro) {
@@ -79,7 +88,7 @@ const Leitura = (() => {
         }
       });
     };
-    desenhar(null, estado.passou ? '' : 'Primeiro ouve (🔊) e depois lê em voz alta (🎤).');
+    desenhar(null, estado.passou ? '' : 'First listen (🔊), then read aloud (🎤).');
     if (!SR && !estado.passou) { estado.passou = true; aoPassar?.(); }
   }
 

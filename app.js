@@ -1004,9 +1004,9 @@ const App = (() => {
           ${z ? `<span class="marca-zona" style="${estiloZona(z)}"></span>` : ''}
         </div>
         <div class="ajuda-texto">
-          <b>📍 Procura na página ${q.pagina}:</b><br>${esc(q.onde)}
+          <b>${T('📍 Procura na página', '📍 Look at page')} ${q.pagina}:</b><br>${esc(q.onde)}
           ${z ? `<div class="recorte" data-ampliar="${src}"${zona}><img src="${src}" alt="Zona da página ${q.pagina} onde está a resposta" style="${estiloRecorte(z)}"></div>` : ''}
-          <span class="muted">Clica na página para a ver em grande.</span>
+          <span class="muted">${T('Clica na página para a ver em grande.', 'Click the page to see it bigger.')}</span>
         </div>
       </div>`;
   }
@@ -1025,17 +1025,21 @@ const App = (() => {
   const estiloZona = ([x, y, w, h]) => `left:${x}%;top:${y}%;width:${w}%;height:${h}%`;
   const estiloRecorte = ([x, y, w, h]) => `width:${10000 / w}%;left:${-100 * x / w}%;top:${-100 * y / h}%;height:${10000 / h}%`;
 
+  // Nos livros de Inglês o ecrã das perguntas é todo em inglês (decisão do pai); o português fica no botão Translation.
+  const emIngles = () => !!(teste && livros[teste.livro]?.leitura?.lingua?.startsWith('en'));
+  const T = (pt, en) => emIngles() ? en : pt;
+
   function topoPergunta(q) {
     const total = teste.perguntas.length;
     return `
       <div class="teste-topo">
-        <span>${teste.modo === 'real' ? '🎓 Teste real · ' : ''}Pergunta ${teste.indice + 1} de ${total}</span>
+        <span>${teste.modo === 'real' ? T('🎓 Teste real · ', '🎓 Real test · ') : ''}${T('Pergunta', 'Question')} ${teste.indice + 1} ${T('de', 'of')} ${total}</span>
         <span class="nivel n${q.nivel}" title="Nível de dificuldade">${NIVEL[q.nivel]}</span>
       </div>
       <div class="progresso"><div style="width:${pct(teste.indice, total)}%"></div></div>
       <div class="teste-acoes" id="teste-acoes">
-        ${teste.modo === 'real' ? '' : `<button class="btn" id="ver-materia" title="Abre a lição desta pergunta. Se ainda não respondeste, conta como ajuda.">📖 Ver a matéria</button>`}
-        <button class="btn" id="sair-teste">✕ Sair do teste</button>
+        ${teste.modo === 'real' ? '' : `<button class="btn" id="ver-materia" title="${T('Abre a lição desta pergunta. Se ainda não respondeste, conta como ajuda.', 'Opens the lesson. If you have not answered yet, it counts as help.')}">${T('📖 Ver a matéria', '📖 See the lesson')}</button>`}
+        <button class="btn" id="sair-teste">${T('✕ Sair do teste', '✕ Leave the test')}</button>
       </div>`;
   }
 
@@ -1047,9 +1051,9 @@ const App = (() => {
     });
     document.getElementById('sair-teste')?.addEventListener('click', () => {
       document.getElementById('teste-acoes').innerHTML = `
-        <span>Sair? As respostas deste teste não ficam guardadas.</span>
-        <button class="btn perigo" id="sair-sim">Sim, sair</button>
-        <button class="btn prim" id="sair-nao">Continuar o teste</button>`;
+        <span>${T('Sair? As respostas deste teste não ficam guardadas.', 'Leave? Your answers will not be saved.')}</span>
+        <button class="btn perigo" id="sair-sim">${T('Sim, sair', 'Yes, leave')}</button>
+        <button class="btn prim" id="sair-nao">${T('Continuar o teste', 'Go on with the test')}</button>`;
       document.getElementById('sair-nao').onclick = () => ecraPergunta();
       document.getElementById('sair-sim').onclick = () => { const id = teste.avaliacao.id; teste = null; location.hash = '#/t/' + id; };
     });
@@ -1062,7 +1066,7 @@ const App = (() => {
       <a class="btn prim" href="#/teste">↩ Voltar ao teste</a>
     </div>` : '';
 
-  const botaoSeguinte = () => `<button class="btn prim grande" id="seguinte">${teste.indice + 1 < teste.perguntas.length ? 'Seguinte →' : 'Ver resultado 🏁'}</button>`;
+  const botaoSeguinte = () => `<button class="btn prim grande" id="seguinte">${teste.indice + 1 < teste.perguntas.length ? T('Seguinte →', 'Next →') : T('Ver resultado 🏁', 'See my result 🏁')}</button>`;
 
   function ecraPergunta() {
     const q = teste.perguntas[teste.indice];
@@ -1117,15 +1121,15 @@ const App = (() => {
   // "A resposta pode ser melhorada": a Leonor assinala que a resposta modelo está incompleta ou pouco clara.
   // Fica em r.melhorar = { comentario, data } e aparece ao pai no Painel → "✍️ Respostas a melhorar".
   const botaoMelhorar = (r, chave = '') => r.melhorar
-    ? '<p class="muted melhorar-feito">✍️ Assinalaste que esta resposta pode ser melhorada. Obrigada! O pai vai rever.</p>'
-    : `<div class="melhorar" data-melhorar-caixa="${chave}"><button class="btn" data-melhorar="${chave}">✍️ A resposta pode ser melhorada</button></div>`;
+    ? `<p class="muted melhorar-feito">${T('✍️ Assinalaste que esta resposta pode ser melhorada. Obrigada! O pai vai rever.', '✍️ You said this answer can be improved. Thank you! Dad will check it.')}</p>`
+    : `<div class="melhorar" data-melhorar-caixa="${chave}"><button class="btn" data-melhorar="${chave}">${T('✍️ A resposta pode ser melhorada', '✍️ This answer can be improved')}</button></div>`;
   // Liga os botões: abre uma caixa para o comentário e, ao enviar, guarda e chama depois().
   function ligarMelhorar(obterResposta, depois) {
     $app.querySelectorAll('[data-melhorar]').forEach(bt => bt.onclick = () => {
       const chave = bt.dataset.melhorar;
       const caixa = $app.querySelector(`[data-melhorar-caixa="${chave}"]`);
-      caixa.innerHTML = `<textarea rows="2" placeholder="O que falta ou não está bem na resposta? (podes deixar em branco)"></textarea>
-        <button class="btn prim">Enviar ao pai</button>`;
+      caixa.innerHTML = `<textarea rows="2" placeholder="${T('O que falta ou não está bem na resposta? (podes deixar em branco)', 'What is missing or wrong in the answer? (optional)')}"></textarea>
+        <button class="btn prim">${T('Enviar ao pai', 'Send to Dad')}</button>`;
       caixa.querySelector('textarea').focus();
       caixa.querySelector('button').onclick = () => {
         obterResposta(chave).melhorar = { comentario: caixa.querySelector('textarea').value.trim(), data: new Date().toISOString() };
@@ -1142,23 +1146,23 @@ const App = (() => {
     if (!r) {
       corpo = `
         <form id="f-escrita" class="escrita">
-          ${e.tipo === 'legenda' ? `<div class="legendas">${e.legendas.map((l, i) => `<label class="legenda"><span class="num">${l.n}</span><input data-leg="${i}" autocomplete="off" spellcheck="false" placeholder="Nome"></label>`).join('')}</div>`
+          ${e.tipo === 'legenda' ? `<div class="legendas">${e.legendas.map((l, i) => `<label class="legenda"><span class="num">${l.n}</span><input data-leg="${i}" autocomplete="off" spellcheck="false" placeholder="${T('Nome', 'Name')}"></label>`).join('')}</div>`
           : e.tipo === 'curta'
-            ? '<input id="resp" autocomplete="off" spellcheck="false" placeholder="Escreve a tua resposta">'
-            : '<textarea id="resp" rows="4" placeholder="Escreve a tua resposta com as tuas palavras"></textarea>'}
-          <button class="btn prim">${real ? (ultima ? 'Entregar teste 🏁' : 'Seguinte →') : e.tipo === 'explica' ? 'Ver a resposta' : 'Responder'}</button>
+            ? `<input id="resp" autocomplete="off" spellcheck="false" placeholder="${T('Escreve a tua resposta', 'Write your answer')}">`
+            : `<textarea id="resp" rows="4" placeholder="${T('Escreve a tua resposta com as tuas palavras', 'Write your answer in your own words')}"></textarea>`}
+          <button class="btn prim">${real ? (ultima ? T('Entregar teste 🏁', 'Hand in the test 🏁') : T('Seguinte →', 'Next →')) : e.tipo === 'explica' ? T('Ver a resposta', 'See the answer') : T('Responder', 'Answer')}</button>
         </form>
-        ${real ? '' : teste.ajuda ? `<div class="feedback ajuda">${blocoPagina(q)}</div>` : '<button class="btn ajuda-btn" id="ajuda">💡 Preciso de ajuda</button>'}`;
+        ${real ? '' : teste.ajuda ? `<div class="feedback ajuda">${blocoPagina(q)}</div>` : `<button class="btn ajuda-btn" id="ajuda">${T('💡 Preciso de ajuda', '💡 I need help')}</button>`}`;
     } else if (e.tipo === 'legenda') {
       const certa = r.pontuacao === 1;
       corpo = `
         <ol class="legendas-res">${e.legendas.map((l, i) => {
           const ok = r.legendasCertas[i];
           return `<li><span class="num">${l.n}</span> ${ok ? '✅' : '❌'} <b>${esc(r.legendas[i]) || '—'}</b>${ok ? '' : ` → <span class="certo">${esc(l.modelo)}</span>
-            <label class="ponto mini"><input type="checkbox" data-leg-ok="${i}" ${r.legendasAluna?.includes(i) ? 'checked' : ''}> a minha também está certa</label>`}</li>`;
+            <label class="ponto mini"><input type="checkbox" data-leg-ok="${i}" ${r.legendasAluna?.includes(i) ? 'checked' : ''}> ${T('a minha também está certa', 'mine is also right')}</label>`}</li>`;
         }).join('')}</ol>
         <div class="feedback ${certa ? 'bom' : r.pontuacao > 0 ? 'ajuda' : 'mau'}">
-          <h3>${certa ? (teste.ajuda ? '👍 Certo, com ajuda!' : '🎉 Muito bem! Legendaste tudo.') : `🙂 Acertaste ${r.legendasCertas.filter(Boolean).length} de ${e.legendas.length}.`}</h3>
+          <h3>${certa ? (teste.ajuda ? T('👍 Certo, com ajuda!', '👍 Right, with help!') : T('🎉 Muito bem! Legendaste tudo.', '🎉 Well done! All correct.')) : `🙂 ${T('Acertaste', 'You got')} ${r.legendasCertas.filter(Boolean).length} ${T('de', 'of')} ${e.legendas.length}.`}</h3>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
           ${leituraLivro() ? '<div id="leitura-r"></div>' : ''}
@@ -1168,35 +1172,35 @@ const App = (() => {
     } else if (e.tipo === 'curta') {
       const certa = r.pontuacao === 1;
       corpo = `
-        <div class="a-tua">A tua resposta: <b>${esc(r.texto) || '—'}</b></div>
+        <div class="a-tua">${T('A tua resposta', 'Your answer')}: <b>${esc(r.texto) || '—'}</b></div>
         <div class="feedback ${certa ? 'bom' : 'mau'}">
-          <h3>${certa ? (teste.ajuda ? '👍 Certo, com ajuda!' : '🎉 Muito bem!') : '💪 Não faz mal, vamos ver onde está.'}</h3>
-          <p><b>Resposta:</b> ${esc(e.modelo)}</p>
+          <h3>${certa ? (teste.ajuda ? T('👍 Certo, com ajuda!', '👍 Right, with help!') : T('🎉 Muito bem!', '🎉 Well done!')) : T('💪 Não faz mal, vamos ver onde está.', '💪 Never mind, let\'s see the answer.')}</h3>
+          <p><b>${T('Resposta', 'Answer')}:</b> ${esc(e.modelo)}</p>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
           ${leituraLivro() ? '<div id="leitura-r"></div>' : ''}
           ${botaoMelhorar(r)}
           <div class="linha-botoes esquerda">
-            ${certa ? '' : '<button class="btn" id="acertei">A minha resposta também está certa</button>'}
+            ${certa ? '' : `<button class="btn" id="acertei">${T('A minha resposta também está certa', 'My answer is also right')}</button>`}
             ${botaoSeguinte()}
           </div>
         </div>`;
     } else if (!r.confirmada) {
       corpo = `
-        <div class="a-tua"><b>A tua resposta:</b><br>${esc(r.texto) || '—'}</div>
+        <div class="a-tua"><b>${T('A tua resposta', 'Your answer')}:</b><br>${esc(r.texto) || '—'}</div>
         <div class="feedback ajuda">
-          <h3>Compara com os pontos-chave</h3>
-          <p class="muted">Marca os pontos que a tua resposta tem, mesmo que escritos com outras palavras.${e.minimo && e.minimo < e.pontos.length ? ` <b>Basta teres ${e.minimo} destes ${e.pontos.length} para a resposta estar completa.</b>` : ''}</p>
+          <h3>${T('Compara com os pontos-chave', 'Compare with the key points')}</h3>
+          <p class="muted">${T('Marca os pontos que a tua resposta tem, mesmo que escritos com outras palavras.', 'Tick the points your answer has, even in other words.')}${e.minimo && e.minimo < e.pontos.length ? ` <b>${T(`Basta teres ${e.minimo} destes ${e.pontos.length} para a resposta estar completa.`, `${e.minimo} of these ${e.pontos.length} are enough.`)}</b>` : ''}</p>
           ${e.pontos.map((p, i) => `<label class="ponto"><input type="checkbox" data-ponto="${i}"> ${esc(p)}</label>`).join('')}
-          <p><b>Resposta modelo:</b> ${esc(e.modelo)}</p>
-          <button class="btn prim" id="confirmar">Confirmar</button>
+          <p><b>${T('Resposta modelo', 'Model answer')}:</b> ${esc(e.modelo)}</p>
+          <button class="btn prim" id="confirmar">${T('Confirmar', 'Confirm')}</button>
         </div>`;
     } else {
       const certa = r.pontuacao === 1;
       corpo = `
-        <div class="a-tua"><b>A tua resposta:</b><br>${esc(r.texto) || '—'}</div>
+        <div class="a-tua"><b>${T('A tua resposta', 'Your answer')}:</b><br>${esc(r.texto) || '—'}</div>
         <div class="feedback ${certa ? 'bom' : r.pontuacao > 0 ? 'ajuda' : 'mau'}">
-          <h3>${certa ? (e.minimo && e.minimo < e.pontos.length ? `🎉 Tinhas os ${e.minimo} pontos-chave pedidos!` : '🎉 Tinhas todos os pontos-chave!') : r.pontuacao > 0 ? `🙂 Tinhas ${r.marcados} de ${Math.min(e.minimo || e.pontos.length, e.pontos.length)} pontos-chave.` : '💪 Não faz mal, vamos ver onde está.'}</h3>
+          <h3>${certa ? T('🎉 Tinhas os pontos-chave!', '🎉 You had the key points!') : r.pontuacao > 0 ? `🙂 ${T('Tinhas', 'You had')} ${r.marcados} ${T('de', 'of')} ${Math.min(e.minimo || e.pontos.length, e.pontos.length)} ${T('pontos-chave', 'key points')}.` : T('💪 Não faz mal, vamos ver onde está.', '💪 Never mind, let\'s see the answer.')}</h3>
           <p>${esc(q.explicacao)}</p>
           ${certa ? '' : blocoPagina(q)}
           ${leituraLivro() ? '<div id="leitura-r"></div>' : ''}
@@ -1211,7 +1215,7 @@ const App = (() => {
         ${imagemPergunta(q)}
         ${q.emoji ? `<div class="emoji-pergunta">${q.emoji}</div>` : ''}
         <h2 class="enunciado">${esc(e.pergunta || q.pergunta)}</h2>
-        ${q.traducao ? `<p class="traducao-linha"><button class="btn mini" id="traducao">🇵🇹 Tradução</button>
+        ${q.traducao ? `<p class="traducao-linha"><button class="btn mini" id="traducao">🇵🇹 Translation</button>
           <span class="traducao" ${verTraducao() ? '' : 'hidden'}>${esc(q.traducao)}</span></p>` : ''}
         ${leituraLivro() && !r ? '<div id="leitura-p"></div>' : ''}
         ${corpo}
@@ -1283,14 +1287,14 @@ const App = (() => {
       };
       if (!estado.passou) {
         campos().forEach(x => { x.disabled = true; });
-        document.getElementById('f-escrita')?.insertAdjacentHTML('beforebegin', '<p id="aviso-ler" class="aviso-ler">🔒 Primeiro lê a pergunta em voz alta (🎤). Depois já podes responder.</p>');
+        document.getElementById('f-escrita')?.insertAdjacentHTML('beforebegin', '<p id="aviso-ler" class="aviso-ler">🔒 First read the question aloud (🎤). Then you can answer.</p>');
       }
-      Leitura.montar(document.getElementById('leitura-p'), { titulo: '📖 Lê a pergunta em voz alta', texto: q.escrita.pergunta || q.pergunta, urlAudio: url('p'), lingua: leit.lingua, estado, aoPassar: abrir });
+      Leitura.montar(document.getElementById('leitura-p'), { titulo: '📖 Read the question aloud', texto: q.escrita.pergunta || q.pergunta, urlAudio: url('p'), lingua: leit.lingua, estado, aoPassar: abrir });
     } else if (document.getElementById('leitura-r')) {
       const estado = teste.leituraR ||= {};
       const sg = document.getElementById('seguinte');
-      if (!estado.passou && sg) { sg.disabled = true; sg.title = 'Primeiro lê a resposta certa em voz alta'; }
-      Leitura.montar(document.getElementById('leitura-r'), { titulo: '🗣️ Agora lê a resposta certa em voz alta', texto: respostaParaLer(q), urlAudio: url('r'), lingua: leit.lingua, estado, aoPassar: () => { if (sg) { sg.disabled = false; sg.title = ''; } } });
+      if (!estado.passou && sg) { sg.disabled = true; sg.title = 'First read the correct answer aloud'; }
+      Leitura.montar(document.getElementById('leitura-r'), { titulo: '🗣️ Now read the correct answer aloud', texto: respostaParaLer(q), urlAudio: url('r'), lingua: leit.lingua, estado, aoPassar: () => { if (sg) { sg.disabled = false; sg.title = ''; } } });
     }
   }
 
@@ -1392,19 +1396,19 @@ const App = (() => {
     // No modo escola a nota mostrada é a da autoavaliação; a final fica pendente da revisão.
     const pendente = t.estado === 'por rever';
     const p = t.percent ?? t.autoPercent;
-    const mensagem = p >= 90 ? '🌟 Excelente!' : p >= 70 ? '😀 Muito bem!' : p >= 50 ? '🙂 Estás quase lá!' : '💪 Vale a pena rever esta matéria.';
+    const mensagem = p >= 90 ? T('🌟 Excelente!', '🌟 Excellent!') : p >= 70 ? T('😀 Muito bem!', '😀 Well done!') : p >= 50 ? T('🙂 Estás quase lá!', '🙂 Almost there!') : T('💪 Vale a pena rever esta matéria.', '💪 Revise this lesson again.');
     const erradas = teste.perguntas.filter((q, i) => !teste.respostas[i].certa || teste.respostas[i].ajuda);
     const respostaCerta = q => ehEscrita(q) ? q.escrita.modelo : q.opcoes[q.correta];
 
     render(`
       <section class="cartao centro">
         <h1>${mensagem}</h1>
-        ${pendente ? '<p class="muted">✋ A tua autoavaliação</p>' : ''}
+        ${pendente ? `<p class="muted">${T('✋ A tua autoavaliação', '✋ Your self-assessment')}</p>` : ''}
         <div class="nota ${p >= 70 ? 'bom' : p >= 50 ? 'medio' : 'mau'}">${p}%</div>
-        ${t.voz != null ? `<p class="notas-duas">✍️ Escrita: <b>${p}%</b> · 🎤 Leitura em voz alta: <b>${t.voz}%</b></p>` : ''}
-        <p>${t.pontos ?? t.autoPontos} pontos em ${t.total} perguntas · ${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯 Exato' : ''}</p>
-        ${pendente ? '<p class="feedback ajuda">⏳ <b>Nota final pendente.</b> Esta é a nota que deste a ti própria. O pai vai pedir a revisão das tuas respostas e depois aparece a nota final.</p>' : ''}
-        ${comAjuda(t) ? `<p class="feedback ajuda">💡 Usaste ajuda em ${comAjuda(t)} de ${t.total} perguntas. Essas valem metade e ainda não contam como sabidas — tenta outra vez sem ajuda.</p>` : ''}
+        ${t.voz != null ? `<p class="notas-duas">${T('✍️ Escrita', '✍️ Writing')}: <b>${p}%</b> · ${T('🎤 Leitura em voz alta', '🎤 Reading aloud')}: <b>${t.voz}%</b></p>` : ''}
+        <p>${t.pontos ?? t.autoPontos} ${T('pontos em', 'points in')} ${t.total} ${T('perguntas', 'questions')} · ${MODOS[t.modo]?.nome || ''} · ${DIFICULDADES[t.dificuldade].nome}${t.exato ? ' 🎯 Exato' : ''}</p>
+        ${pendente ? `<p class="feedback ajuda">${T('⏳ <b>Nota final pendente.</b> Esta é a nota que deste a ti própria. O pai vai pedir a revisão das tuas respostas e depois aparece a nota final.', '⏳ <b>Final mark pending.</b> This is the mark you gave yourself. Your answers will be checked and then the final mark appears.')}</p>` : ''}
+        ${comAjuda(t) ? `<p class="feedback ajuda">${T(`💡 Usaste ajuda em ${comAjuda(t)} de ${t.total} perguntas. Essas valem metade e ainda não contam como sabidas — tenta outra vez sem ajuda.`, `💡 You used help in ${comAjuda(t)} of ${t.total} questions. They count half — try again without help.`)}</p>` : ''}
         <div class="niveis">
           ${[1, 2, 3].filter(n => t.porNivel[n]).map(n => `<span class="chip">${NIVEL[n]} ${t.porNivel[n].certas}/${t.porNivel[n].total}</span>`).join('')}
         </div>
@@ -1416,14 +1420,14 @@ const App = (() => {
           </div>` : t.licao && p >= DOMINIO && t.dificuldade === 'dificil' ? `
           <div class="feedback bom subir"><b>🏆 Dominas esta lição até ao nível mais difícil!</b> Passa à lição seguinte ou faz o teste global.</div>` : ''}
         ${erradas.length ? `
-          <h2>Para rever</h2>
+          <h2>${T('Para rever', 'To revise')}</h2>
           <ul class="rever">
-            ${erradas.map(q => `<li><b>${esc(ehEscrita(q) ? q.escrita.pergunta || q.pergunta : q.pergunta)}</b><br>✔ ${esc(respostaCerta(q))}<br><span class="muted">📍 Página ${q.pagina}: ${esc(q.onde)}</span></li>`).join('')}
-          </ul>` : '<p>Acertaste tudo sem ajuda! 🎉</p>'}
+            ${erradas.map(q => `<li><b>${esc(ehEscrita(q) ? q.escrita.pergunta || q.pergunta : q.pergunta)}</b><br>✔ ${esc(respostaCerta(q))}<br><span class="muted">📍 ${T('Página', 'Page')} ${q.pagina}: ${esc(q.onde)}</span></li>`).join('')}
+          </ul>` : `<p>${T('Acertaste tudo sem ajuda! 🎉', 'All correct without help! 🎉')}</p>`}
         <div class="linha-botoes">
-          <a class="btn prim" href="#/testar/${t.avaliacao}/${t.tipo === 'custam' ? 'custam' : t.pagina ?? 'global'}">🔁 Repetir</a>
-          ${t.pagina ? `<a class="btn" href="#/estudar/${t.livro}/${t.pagina}/${t.avaliacao}">📖 Rever a lição</a>` : ''}
-          <a class="btn" href="#/t/${t.avaliacao}">Voltar ao teste</a>
+          <a class="btn prim" href="#/testar/${t.avaliacao}/${t.tipo === 'custam' ? 'custam' : t.pagina ?? 'global'}">${T('🔁 Repetir', '🔁 Try again')}</a>
+          ${t.pagina ? `<a class="btn" href="#/estudar/${t.livro}/${t.pagina}/${t.avaliacao}">${T('📖 Rever a lição', '📖 Revise the lesson')}</a>` : ''}
+          <a class="btn" href="#/t/${t.avaliacao}">${T('Voltar ao teste', 'Back')}</a>
         </div>
       </section>`);
   }
