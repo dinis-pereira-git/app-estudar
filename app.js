@@ -2285,7 +2285,8 @@ const App = (() => {
     // Não mexe no ecrã durante um teste nem enquanto se está a escrever.
     const atualizar = async () => {
       if (document.visibilityState !== 'visible') return;
-      if (/^#\/(teste|resultado|gerir)/.test(location.hash)) return;
+      // (Na autocorreção as marcas só se gravam no fim: redesenhar apagava-as — a Leonor perdeu autocorreções a 29/10.)
+      if (/^#\/(teste|resultado|gerir|autocorrecao)/.test(location.hash)) return;
       if (document.activeElement?.matches?.('textarea, input')) return;
       try {
         if (await A.atualizarTestes()) { const y = scrollY; rota(); scrollTo(0, y); }
