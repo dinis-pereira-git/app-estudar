@@ -21,6 +21,10 @@ const Armazenamento = (() => {
   // Só leitura: contas de responsáveis (ex.: a mãe) que veem os dados da Leonor (tabela familia no Supabase).
   // Nada do que se faz com estas contas é gravado no servidor (nem tempo, nem testes, nem "correções vistas").
   let soLeitura = false;
+  // Editor: conta de um responsável com pode_editar (o pai) — vê e altera os dados da Leonor como se fosse ela
+  // (o que grava leva o user_id dela). Só o tempo de estudo é que não conta (é da Leonor, não do pai).
+  let alunoEditado = null;
+  const deAluno = o => alunoEditado ? { ...o, user_id: alunoEditado } : o;
   const SO_LEITURA = 'Esta conta só pode ver o progresso (modo só leitura).';
 
   const hoje = () => new Date().toLocaleDateString('sv'); // AAAA-MM-DD
@@ -36,7 +40,7 @@ const Armazenamento = (() => {
   const escreverPendentes = l => { try { localStorage.setItem(CHAVE_PENDENTES, JSON.stringify(l)); } catch {} };
   let aoMudarPendentes = () => {};
   async function enviarTestePendente(teste) {
-    const { error } = await db.from('testes').insert({ registo: teste, data: teste.data });
+    const { error } = await db.from('testes').insert(deAluno({ registo: teste, data: teste.data }));
     if (error) throw error;
     escreverPendentes(lerPendentes().filter(t => t.id !== teste.id));
   }
@@ -73,8 +77,11 @@ const Armazenamento = (() => {
     }
     // Esta conta é responsável por alguém? Então mostra os dados dessa pessoa, sem gravar nada.
     const uid = (await db.auth.getSession()).data.session?.user?.id;
-    const fam = await db.from('familia').select('responsavel, aluno');
-    soLeitura = !fam.error && fam.data.some(f => f.responsavel === uid);
+    let fam = await db.from('familia').select('responsavel, aluno, pode_editar');
+    if (fam.error) fam = await db.from('familia').select('responsavel, aluno');
+    const minha = !fam.error && fam.data.find(f => f.responsavel === uid);
+    alunoEditado = minha?.pode_editar ? minha.aluno : null;
+    soLeitura = !!minha && !minha.pode_editar;
     const [tempo, estudadas, testes, avaliacoes] = await Promise.all([
       db.from('tempo').select('dia, conteudo, pagina, segundos'),
       db.from('paginas_estudadas').select('conteudo, pagina, data'),
@@ -110,7 +117,7 @@ const Armazenamento = (() => {
 
   // O tempo é enviado em lotes (de 30 em 30 s, e quando se sai da página) para não fazer pedidos a cada 5 s.
   function enviarTempo() {
-    if (!db || soLeitura) return;
+    if (!db || soLeitura || alunoEditado) { tempoPendente = {}; return; }
     const lote = tempoPendente;
     tempoPendente = {};
     for (const [chave, segundos] of Object.entries(lote)) {
@@ -124,6 +131,7 @@ const Armazenamento = (() => {
     get estado() { return estado; },
     get online() { return !!db; },
     get soLeitura() { return soLeitura; },
+    get editor() { return !!alunoEditado; },
     iniciar,
     hoje,
     infoPagina,
@@ -144,7 +152,7 @@ const Armazenamento = (() => {
       p.estudada = true;
       p.data = new Date().toISOString();
       guardarLocal();
-      if (!soLeitura) db?.from('paginas_estudadas').upsert({ conteudo: livro, pagina }).then(({ error }) => avisar(error));
+      if (!soLeitura) db?.from('paginas_estudadas').upsert(deAluno({ conteudo: livro, pagina })).then(({ error }) => avisar(error));
     },
 
     // Para desfazer um "Já estudei" carregado sem querer, ou para repetir a página.
@@ -219,7 +227,7 @@ const Armazenamento = (() => {
       const dados = { disciplina: a.disciplina, periodo: a.periodo, nome: a.nome, data: a.data || null, livro: a.livro, de: a.de, ate: a.ate };
       let guardada;
       if (db) {
-        const pedido = a.id ? db.from('avaliacoes').update(dados).eq('id', a.id) : db.from('avaliacoes').insert(dados);
+        const pedido = a.id ? db.from('avaliacoes').update(dados).eq('id', a.id) : db.from('avaliacoes').insert(deAluno(dados));
         const { data, error } = await pedido.select().single();
         if (error) throw error;
         guardada = data;

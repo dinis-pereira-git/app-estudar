@@ -520,8 +520,9 @@ const App = (() => {
         r.reacao = { ...r.reacao, editar: true };
         redesenhar();
       });
-      // Marca como vistas as correções novas (para o aviso da página inicial desaparecer).
-      lista.filter(t => !t.correcao?.vista).forEach(t => { t.correcao.vista = new Date().toISOString(); A.guardarRegisto(t).catch(() => {}); });
+      // Marca como vistas as correções novas (para o aviso da página inicial desaparecer). Só quando é a Leonor a ver:
+      // com a conta do pai (editor) não, para o aviso continuar a aparecer-lhe.
+      if (!A.editor) lista.filter(t => !t.correcao?.vista).forEach(t => { t.correcao.vista = new Date().toISOString(); A.guardarRegisto(t).catch(() => {}); });
     };
     return { html, ligar };
   }
@@ -2265,6 +2266,7 @@ const App = (() => {
       };
       await A.iniciar(db);
       // Conta de um responsável (ex.: a mãe): vê o progresso da Leonor, mas nada fica gravado.
+      if (A.editor) document.body.insertAdjacentHTML('afterbegin', '<div class="aviso-leitura editor">✏️ <b>Conta do pai</b>: estás a ver e a alterar os dados da Leonor (o teu tempo não conta como estudo dela).</div>');
       if (A.soLeitura) document.body.insertAdjacentHTML('afterbegin', '<div class="aviso-leitura">👀 <b>Modo só leitura</b>: estás a ver o progresso da Leonor. O que fizeres aqui não fica gravado.</div>');
       const catalogo = await (await fetch('catalogo.json', { cache: 'no-cache' })).json();
       for (const d of catalogo.disciplinas) {
